@@ -36,14 +36,19 @@ app.use(rateLimit({
 // CORS configuration
 const allowedOrigins = [
   'http://localhost:5173',
-  process.env.CLIENT_URL
+  'https://ops.rekker.co.ke',
+  'https://rekker-ops.onrender.com'
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log('❌ CORS blocked:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
