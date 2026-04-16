@@ -1,0 +1,65 @@
+# Node modules
+node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables (VERY IMPORTANT)
+.env
+.env.local
+.env.example
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build folders
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor files
+.vscode/
+.idea/
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache
+.npm
+
+# Parcel / Vite cache
+.cache/
+.vite/
+
+# Coverage reports
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Mac system files
+.AppleDouble
+.LSOverride
+
+# Windows system files
+ehthumbs.db
+Desktop.ini
+
+# Python (if any scripts)
+__pycache__/
+*.pyc
+
+# Database (if local)
+*.sqlite
+*.db
+
+# Uploads (if you store user files)
+uploads/

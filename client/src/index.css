@@ -1,0 +1,109 @@
+/* client/src/index.css */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 17% 7%;
+    --foreground: 210 20% 92%;
+
+    --card: 220 17% 10%;
+    --card-foreground: 210 20% 92%;
+
+    --popover: 220 17% 10%;
+    --popover-foreground: 210 20% 92%;
+
+    --primary: 22 100% 58%;
+    --primary-foreground: 220 17% 7%;
+
+    --secondary: 220 17% 14%;
+    --secondary-foreground: 210 20% 80%;
+
+    --muted: 220 17% 14%;
+    --muted-foreground: 215 15% 50%;
+
+    --accent: 220 17% 16%;
+    --accent-foreground: 210 20% 92%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 98%;
+
+    --border: 220 17% 18%;
+    --input: 220 17% 14%;
+    --ring: 22 100% 58%;
+
+    --radius: 0.6rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+@layer utilities {
+  .rekker-grid-bg {
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .rekker-glow {
+    box-shadow: 0 0 40px hsl(22 100% 58% / 0.15);
+  }
+
+  .rekker-glow-sm {
+    box-shadow: 0 0 16px hsl(22 100% 58% / 0.2);
+  }
+
+  .glass {
+    background: hsl(var(--card) / 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .status-pill {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium font-mono tracking-wider uppercase;
+  }
+
+  .table-cell-mono {
+    @apply font-mono text-xs;
+  }
+
+  .animate-fade-up {
+    animation: fade-up 0.4s ease-out both;
+  }
+
+  .page-title {
+    @apply font-display text-4xl tracking-wider uppercase text-foreground;
+  }
+}
