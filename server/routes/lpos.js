@@ -40,8 +40,21 @@ router.get('/', protect, async (req, res) => {
     });
 
     const sortedKeys = Object.keys(grouped).sort((a, b) => new Date(b) - new Date(a));
-    const result = sortedKeys.map((date) => ({ date, lpos: grouped[date] }));
-    res.json(result);
+    res.json(sortedKeys.map((date) => ({ date, lpos: grouped[date] })));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/lpos/uninvoiced — LPOs that do not yet have an invoice (for invoice creation dropdown)
+router.get('/uninvoiced', protect, async (req, res) => {
+  try {
+    const Invoice = require('../models/Invoice');
+    const invoicedLpoIds = await Invoice.distinct('lpo');
+    const lpos = await LPO.find({ _id: { $nin: invoicedLpoIds } })
+      .populate(POPULATE)
+      .sort({ date: -1 });
+    res.json(lpos);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -50,7 +63,7 @@ router.get('/', protect, async (req, res) => {
 // POST /api/lpos — create single LPO
 router.post('/', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
   try {
-    const { lpoNumber, date, deliveryDate, responsiblePerson, issuedNow, branchId, branchNameRaw } = req.body;
+    const { lpoNumber, date, deliveryDate, responsiblePerson, issuedNow, branchId, branchNameRaw, amount } = req.body;
 
     const existing = await LPO.findOne({ lpoNumber: lpoNumber.toUpperCase() });
     if (existing) return res.status(400).json({ message: 'LPO number already exists' });
@@ -63,6 +76,7 @@ router.post('/', protect, authorize('super_admin', 'admin', 'team_lead'), async 
       createdBy: req.user._id,
       branch: branchId || null,
       branchNameRaw: branchNameRaw || '',
+      amount: amount != null ? Number(amount) : null,
     };
 
     if (issuedNow) {
@@ -70,29 +84,25 @@ router.post('/', protect, authorize('super_admin', 'admin', 'team_lead'), async 
       lpoData.status = 'issued';
     }
 
-    const lpo = await (await LPO.create(lpoData)).populate(POPULATE);
+    const lpo = await LPO.create(lpoData);
+    await lpo.populate(POPULATE);
     res.status(201).json(lpo);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// POST /api/lpos/batch — create multiple LPOs at once (same person, possibly different branches)
+// POST /api/lpos/batch — create multiple LPOs at once
 router.post('/batch', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
   try {
-    const { lpos, issuedNow } = req.body;
-    // lpos: [{ lpoNumber, branchId, branchNameRaw, deliveryDate? }]
-    // shared fields on batch: date, responsiblePerson
-    const { date, responsiblePerson } = req.body;
+    const { lpos, issuedNow, date, responsiblePerson } = req.body;
 
     if (!lpos || !lpos.length) return res.status(400).json({ message: 'No LPOs provided' });
 
-    // Check for duplicate LPO numbers in this batch
     const numbers = lpos.map((l) => l.lpoNumber.toUpperCase());
     const dupes = numbers.filter((n, i) => numbers.indexOf(n) !== i);
-    if (dupes.length) return res.status(400).json({ message: `Duplicate LPO numbers in batch: ${dupes.join(', ')}` });
+    if (dupes.length) return res.status(400).json({ message: `Duplicate LPO numbers: ${dupes.join(', ')}` });
 
-    // Check against DB
     const existingInDB = await LPO.find({ lpoNumber: { $in: numbers } });
     if (existingInDB.length) {
       return res.status(400).json({ message: `Already exists: ${existingInDB.map((l) => l.lpoNumber).join(', ')}` });
@@ -109,14 +119,14 @@ router.post('/batch', protect, authorize('super_admin', 'admin', 'team_lead'), a
       responsiblePerson,
       branch: l.branchId || null,
       branchNameRaw: l.branchNameRaw || '',
+      amount: l.amount != null ? Number(l.amount) : null,
       batchId,
       createdBy: req.user._id,
       ...(issuedNow ? { issuedAt: now, status: 'issued' } : {}),
     }));
 
-    const created = await LPO.insertMany(docs);
+    await LPO.insertMany(docs);
     const populated = await LPO.find({ batchId }).populate(POPULATE).sort({ createdAt: 1 });
-
     res.status(201).json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -132,16 +142,13 @@ router.patch('/:id/status', protect, authorize('super_admin', 'admin', 'team_lea
 
     const now = new Date();
     if (action === 'issue') {
-      lpo.issuedAt = now;
-      lpo.status = 'issued';
+      lpo.issuedAt = now; lpo.status = 'issued';
     } else if (action === 'complete') {
       if (!lpo.issuedAt) return res.status(400).json({ message: 'LPO must be issued first' });
-      lpo.completedAt = now;
-      lpo.status = 'completed';
+      lpo.completedAt = now; lpo.status = 'completed';
     } else if (action === 'check') {
       if (!lpo.completedAt) return res.status(400).json({ message: 'LPO must be completed first' });
-      lpo.checkedAt = now;
-      lpo.status = 'checked';
+      lpo.checkedAt = now; lpo.status = 'checked';
     } else {
       return res.status(400).json({ message: 'Invalid action' });
     }
@@ -154,7 +161,7 @@ router.patch('/:id/status', protect, authorize('super_admin', 'admin', 'team_lea
   }
 });
 
-// PATCH /api/lpos/batch/:batchId/status — apply status action to all LPOs in a batch
+// PATCH /api/lpos/batch/:batchId/status
 router.patch('/batch/:batchId/status', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
   try {
     const { action } = req.body;

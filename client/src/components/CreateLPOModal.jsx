@@ -23,36 +23,16 @@ import toast from 'react-hot-toast';
 const NEW_BRANCH_SENTINEL = '__NEW__';
 
 const MODES = [
-  {
-    val: 'single',
-    icon: User,
-    label: 'Single',
-    sub: '1 person · 1 LPO',
-  },
-  {
-    val: 'same_branch',
-    icon: GitBranch,
-    label: 'Same Branch',
-    sub: '1 person · many LPOs · 1 branch',
-  },
-  {
-    val: 'multi_branch',
-    icon: Layers,
-    label: 'Multi-Branch',
-    sub: '1 person · many LPOs · diff branches',
-  },
-  {
-    val: 'multi_person',
-    icon: Users,
-    label: 'Multi-Person',
-    sub: 'many people · LPOs · 1 branch',
-  },
+  { val: 'single',       icon: User,      label: 'Single',       sub: '1 person · 1 LPO · 1 branch'              },
+  { val: 'same_branch',  icon: GitBranch, label: 'Same Branch',  sub: '1 person · many LPOs · 1 branch'          },
+  { val: 'multi_branch', icon: Layers,    label: 'Multi-Branch', sub: '1 person · many LPOs · diff. branches'    },
+  { val: 'multi_person', icon: Users,     label: 'Multi-Person', sub: 'many people · LPOs · 1 branch'            },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BranchSelector — dropdown with "Add new branch…" escape hatch
 // ─────────────────────────────────────────────────────────────────────────────
-function BranchSelector({ value, onChange, branches, placeholder = 'Select branch…' }) {
+function BranchSelector({ value, onChange, branches }) {
   const [newName, setNewName] = useState('');
   const selectValue = value.isNew ? NEW_BRANCH_SENTINEL : (value.branchId || '');
 
@@ -75,7 +55,7 @@ function BranchSelector({ value, onChange, branches, placeholder = 'Select branc
     <div className="space-y-2">
       <Select value={selectValue} onValueChange={handleSelectChange}>
         <SelectTrigger>
-          <SelectValue placeholder={placeholder} />
+          <SelectValue placeholder="Select branch…" />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
@@ -93,7 +73,6 @@ function BranchSelector({ value, onChange, branches, placeholder = 'Select branc
           </SelectItem>
         </SelectContent>
       </Select>
-
       {value.isNew && (
         <div className="space-y-1">
           <Input
@@ -114,7 +93,7 @@ function BranchSelector({ value, onChange, branches, placeholder = 'Select branc
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PersonSelector — plain Select wrapper
+// PersonSelector
 // ─────────────────────────────────────────────────────────────────────────────
 function PersonSelector({ value, onChange, persons, placeholder = 'Select person…' }) {
   return (
@@ -132,7 +111,27 @@ function PersonSelector({ value, onChange, persons, placeholder = 'Select person
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared top fields (date, delivery date)
+// AmountInput — KES currency field
+// ─────────────────────────────────────────────────────────────────────────────
+function AmountInput({ value, onChange, placeholder = '0.00' }) {
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono">KES</span>
+      <Input
+        type="number"
+        min="0"
+        step="0.01"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="pl-10 h-8 text-sm font-mono"
+      />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared date fields
 // ─────────────────────────────────────────────────────────────────────────────
 function SharedDateFields({ date, setDate, deliveryDate, setDeliveryDate }) {
   return (
@@ -150,47 +149,11 @@ function SharedDateFields({ date, setDate, deliveryDate, setDeliveryDate }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LPO Number list — used in same_branch and multi_person modes
-// Just a column of LPO number inputs with add/remove
-// ─────────────────────────────────────────────────────────────────────────────
-function LpoNumberList({ rows, onChange, onAdd, onRemove, placeholder = 'LPO Number' }) {
-  return (
-    <div className="space-y-2">
-      <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-        {rows.map((row, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <span className="text-xs font-mono text-muted-foreground w-5 text-right shrink-0">{i + 1}.</span>
-            <Input
-              className="font-mono uppercase h-8 text-sm flex-1"
-              placeholder={placeholder}
-              value={row.lpoNumber}
-              onChange={(e) => onChange(i, e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => onRemove(i)}
-              disabled={rows.length === 1}
-              className="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground disabled:opacity-30"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
-      </div>
-      <Button type="button" variant="outline" size="sm" onClick={onAdd} className="w-full border-dashed">
-        <Plus className="w-3.5 h-3.5" />
-        Add LPO Number
-      </Button>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-const emptyLpoRow   = () => ({ lpoNumber: '' });
-const emptyPersonRow = () => ({ lpoNumber: '', personId: '' });
-const emptyMultiRow  = () => ({ lpoNumber: '', branchId: null, branchNameRaw: '', isNew: false });
+const emptyLpoRow    = () => ({ lpoNumber: '', amount: '' });
+const emptyMultiRow  = () => ({ lpoNumber: '', amount: '', branchId: null, branchNameRaw: '', isNew: false });
+const emptyPersonRow = () => ({ lpoNumber: '', amount: '' });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Modal
@@ -202,16 +165,17 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
   const [mode, setMode]         = useState('single');
 
   // Shared
-  const [date, setDate]               = useState('');
+  const [date, setDate]                 = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
-  const [issueNow, setIssueNow]       = useState(true);
+  const [issueNow, setIssueNow]         = useState(true);
 
   // ── single ──
   const [singleLpoNumber, setSingleLpoNumber] = useState('');
+  const [singleAmount, setSingleAmount]       = useState('');
   const [singlePersonId, setSinglePersonId]   = useState('');
   const [singleBranch, setSingleBranch]       = useState({ branchId: null, branchNameRaw: '', isNew: false });
 
-  // ── same_branch: 1 person, 1 branch, many LPO numbers ──
+  // ── same_branch: 1 person, 1 branch, many LPO rows ──
   const [sbPersonId, setSbPersonId] = useState('');
   const [sbBranch, setSbBranch]     = useState({ branchId: null, branchNameRaw: '', isNew: false });
   const [sbRows, setSbRows]         = useState([emptyLpoRow(), emptyLpoRow()]);
@@ -220,27 +184,25 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
   const [mbPersonId, setMbPersonId] = useState('');
   const [mbRows, setMbRows]         = useState([emptyMultiRow(), emptyMultiRow()]);
 
-  // ── multi_person: 1 branch, many rows of [lpoNumber + person] ──
-  const [mpBranch, setMpBranch] = useState({ branchId: null, branchNameRaw: '', isNew: false });
-  const [mpRows, setMpRows]     = useState([emptyPersonRow(), emptyPersonRow()]);
+  // ── multi_person: 1 branch, persons selected at top, rows = [lpoNumber + amount + assignTo] ──
+  const [mpBranch, setMpBranch]     = useState({ branchId: null, branchNameRaw: '', isNew: false });
+  // persons assigned to this job (could be multiple; each LPO row can be assigned to any of them)
+  const [mpPersonIds, setMpPersonIds] = useState([]); // selected at top
+  const [mpRows, setMpRows]           = useState([emptyPersonRow(), emptyPersonRow()]);
+  // each mpRow also has an assignedPersonId
+  const emptyMpRow = () => ({ lpoNumber: '', amount: '', assignedPersonId: '' });
 
   const reset = useCallback(() => {
     const today = new Date().toISOString().split('T')[0];
-    setDate(today);
-    setDeliveryDate('');
-    setIssueNow(true);
-    setMode('single');
-
-    setSingleLpoNumber(''); setSinglePersonId('');
+    setDate(today); setDeliveryDate(''); setIssueNow(true); setMode('single');
+    setSingleLpoNumber(''); setSingleAmount(''); setSinglePersonId('');
     setSingleBranch({ branchId: null, branchNameRaw: '', isNew: false });
-
     setSbPersonId(''); setSbBranch({ branchId: null, branchNameRaw: '', isNew: false });
     setSbRows([emptyLpoRow(), emptyLpoRow()]);
-
     setMbPersonId(''); setMbRows([emptyMultiRow(), emptyMultiRow()]);
-
     setMpBranch({ branchId: null, branchNameRaw: '', isNew: false });
-    setMpRows([emptyPersonRow(), emptyPersonRow()]);
+    setMpPersonIds([]);
+    setMpRows([emptyMpRow(), emptyMpRow()]);
   }, []);
 
   useEffect(() => {
@@ -251,7 +213,6 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
     }
   }, [open, reset]);
 
-  // Resolve a branch object — suggest to server if new
   const resolveBranch = async ({ branchId, branchNameRaw, isNew }) => {
     if (!isNew && branchId) return { branchId, branchNameRaw };
     if (isNew && branchNameRaw?.trim()) {
@@ -261,132 +222,122 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
     return { branchId: null, branchNameRaw: '' };
   };
 
-  const validateShared = (personId) => {
-    if (!deliveryDate)           { toast.error('Set a delivery date');          return false; }
-    if (personId !== null && !personId) { toast.error('Select a responsible person'); return false; }
+  const validateBase = () => {
+    if (!deliveryDate) { toast.error('Set a delivery date'); return false; }
     return true;
   };
 
-  // ── Submit handlers ──────────────────────────────────────────────────────
-
+  // ── Submit: single ──
   const submitSingle = async () => {
-    if (!singleLpoNumber.trim()) return toast.error('LPO Number is required');
-    if (!validateShared(singlePersonId)) return;
+    if (!singleLpoNumber.trim()) return toast.error('LPO Number required');
+    if (!singlePersonId)         return toast.error('Select a responsible person');
+    if (!validateBase())         return;
     setLoading(true);
     try {
       const { branchId, branchNameRaw } = await resolveBranch(singleBranch);
       const res = await api.post('/lpos', {
-        lpoNumber: singleLpoNumber,
-        date, deliveryDate,
-        responsiblePerson: singlePersonId,
-        issuedNow: issueNow,
+        lpoNumber: singleLpoNumber, date, deliveryDate,
+        responsiblePerson: singlePersonId, issuedNow: issueNow,
         branchId, branchNameRaw,
+        amount: singleAmount !== '' ? Number(singleAmount) : null,
       });
       toast.success(`LPO ${res.data.lpoNumber} created!`);
-      onCreated([res.data]);
-      onClose();
+      onCreated([res.data]); onClose();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed');
     } finally { setLoading(false); }
   };
 
-  // same_branch: 1 person, 1 branch, many LPO numbers → batch
+  // ── Submit: same_branch ──
   const submitSameBranch = async () => {
     const valid = sbRows.filter((r) => r.lpoNumber.trim());
     if (!valid.length)  return toast.error('Add at least one LPO number');
     if (!sbPersonId)    return toast.error('Select a responsible person');
-    if (!deliveryDate)  return toast.error('Set a delivery date');
+    if (!validateBase()) return;
     setLoading(true);
     try {
       const { branchId, branchNameRaw } = await resolveBranch(sbBranch);
       const lpos = valid.map((r) => ({
-        lpoNumber: r.lpoNumber,
-        branchId, branchNameRaw,
-        deliveryDate,
+        lpoNumber: r.lpoNumber, branchId, branchNameRaw, deliveryDate,
+        amount: r.amount !== '' ? Number(r.amount) : null,
       }));
-      const res = await api.post('/lpos/batch', {
-        lpos, date, deliveryDate,
-        responsiblePerson: sbPersonId,
-        issuedNow: issueNow,
-      });
+      const res = await api.post('/lpos/batch', { lpos, date, deliveryDate, responsiblePerson: sbPersonId, issuedNow: issueNow });
       toast.success(`${res.data.length} LPOs created!`);
-      onCreated(res.data);
-      onClose();
+      onCreated(res.data); onClose();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed');
     } finally { setLoading(false); }
   };
 
-  // multi_branch: 1 person, many LPOs, each with own branch → batch
+  // ── Submit: multi_branch ──
   const submitMultiBranch = async () => {
     const valid = mbRows.filter((r) => r.lpoNumber.trim());
     if (!valid.length) return toast.error('Add at least one LPO number');
     if (!mbPersonId)   return toast.error('Select a responsible person');
-    if (!deliveryDate) return toast.error('Set a delivery date');
+    if (!validateBase()) return;
     setLoading(true);
     try {
       const resolved = await Promise.all(valid.map((r) => resolveBranch(r)));
       const lpos = valid.map((r, i) => ({
-        lpoNumber: r.lpoNumber,
-        branchId:      resolved[i].branchId,
-        branchNameRaw: resolved[i].branchNameRaw,
-        deliveryDate,
+        lpoNumber: r.lpoNumber, branchId: resolved[i].branchId,
+        branchNameRaw: resolved[i].branchNameRaw, deliveryDate,
+        amount: r.amount !== '' ? Number(r.amount) : null,
       }));
-      const res = await api.post('/lpos/batch', {
-        lpos, date, deliveryDate,
-        responsiblePerson: mbPersonId,
-        issuedNow: issueNow,
-      });
+      const res = await api.post('/lpos/batch', { lpos, date, deliveryDate, responsiblePerson: mbPersonId, issuedNow: issueNow });
       toast.success(`${res.data.length} LPOs created!`);
-      onCreated(res.data);
-      onClose();
+      onCreated(res.data); onClose();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed');
     } finally { setLoading(false); }
   };
 
-  // multi_person: 1 branch, rows of [lpoNumber + person] → individual LPOs (no shared batchId)
+  // ── Submit: multi_person ──
+  // Each row has its own assigned person from the list selected at top
   const submitMultiPerson = async () => {
-    const valid = mpRows.filter((r) => r.lpoNumber.trim() && r.personId);
-    if (!valid.length) return toast.error('Add at least one complete row');
-    if (!deliveryDate) return toast.error('Set a delivery date');
-    const missingPerson = mpRows.some((r) => r.lpoNumber.trim() && !r.personId);
-    if (missingPerson)  return toast.error('Each LPO row needs a person assigned');
+    const valid = mpRows.filter((r) => r.lpoNumber.trim() && r.assignedPersonId);
+    if (!valid.length)       return toast.error('Add at least one complete row (LPO + person)');
+    if (!validateBase())     return;
+    const missingPerson = mpRows.some((r) => r.lpoNumber.trim() && !r.assignedPersonId);
+    if (missingPerson)       return toast.error('Each LPO needs a person assigned');
     setLoading(true);
     try {
       const { branchId, branchNameRaw } = await resolveBranch(mpBranch);
-      // Create all individually in parallel (different persons = no shared batch)
+      // Different persons = no shared batch; create individually in parallel
       const results = await Promise.all(
         valid.map((r) =>
           api.post('/lpos', {
-            lpoNumber: r.lpoNumber,
-            date, deliveryDate,
-            responsiblePerson: r.personId,
-            issuedNow: issueNow,
+            lpoNumber: r.lpoNumber, date, deliveryDate,
+            responsiblePerson: r.assignedPersonId, issuedNow: issueNow,
             branchId, branchNameRaw,
+            amount: r.amount !== '' ? Number(r.amount) : null,
           }).then((res) => res.data)
         )
       );
       toast.success(`${results.length} LPOs created!`);
-      onCreated(results);
-      onClose();
+      onCreated(results); onClose();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed');
     } finally { setLoading(false); }
   };
 
-  const SUBMIT_MAP = {
-    single:       submitSingle,
-    same_branch:  submitSameBranch,
-    multi_branch: submitMultiBranch,
-    multi_person: submitMultiPerson,
-  };
+  const SUBMIT_MAP = { single: submitSingle, same_branch: submitSameBranch, multi_branch: submitMultiBranch, multi_person: submitMultiPerson };
 
   const validCount = () => {
     if (mode === 'same_branch')  return sbRows.filter((r) => r.lpoNumber.trim()).length;
     if (mode === 'multi_branch') return mbRows.filter((r) => r.lpoNumber.trim()).length;
-    if (mode === 'multi_person') return mpRows.filter((r) => r.lpoNumber.trim() && r.personId).length;
+    if (mode === 'multi_person') return mpRows.filter((r) => r.lpoNumber.trim() && r.assignedPersonId).length;
     return 1;
+  };
+
+  // Toggle a person in the multi-person top selection
+  const toggleMpPerson = (id) => {
+    setMpPersonIds((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+    // If removed, clear any rows assigned to that person
+    setMpRows((rows) =>
+      rows.map((r) => r.assignedPersonId === id ? { ...r, assignedPersonId: '' } : r)
+    );
   };
 
   return (
@@ -397,20 +348,14 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
           <DialogDescription>Choose the scenario that matches how this order is being handled.</DialogDescription>
         </DialogHeader>
 
-        {/* ── Mode selector ── */}
+        {/* Mode selector */}
         <div className="grid grid-cols-2 gap-2 mt-1">
           {MODES.map(({ val, icon: Icon, label, sub }) => (
-            <button
-              key={val}
-              type="button"
-              onClick={() => setMode(val)}
+            <button key={val} type="button" onClick={() => setMode(val)}
               className={cn(
                 'flex items-start gap-3 px-3 py-3 rounded-lg border text-left transition-all',
-                mode === val
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border text-muted-foreground hover:text-foreground hover:bg-accent/30'
-              )}
-            >
+                mode === val ? 'border-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground hover:bg-accent/30'
+              )}>
               <Icon className={cn('w-4 h-4 mt-0.5 shrink-0', mode === val ? 'text-primary' : '')} />
               <div>
                 <p className={cn('text-sm font-semibold leading-none', mode === val ? 'text-primary' : 'text-foreground')}>{label}</p>
@@ -421,29 +366,25 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
         </div>
 
         <div className="space-y-4 mt-1">
-          {/* ── Shared date fields (all modes) ── */}
-          <SharedDateFields
-            date={date} setDate={setDate}
-            deliveryDate={deliveryDate} setDeliveryDate={setDeliveryDate}
-          />
+          <SharedDateFields date={date} setDate={setDate} deliveryDate={deliveryDate} setDeliveryDate={setDeliveryDate} />
 
-          {/* ══════════════════════════════════════════════════════════════
-              MODE: single
-          ══════════════════════════════════════════════════════════════ */}
+          {/* ══ SINGLE ══ */}
           {mode === 'single' && (
             <>
               <div className="space-y-1.5">
                 <Label>Responsible Person</Label>
                 <PersonSelector value={singlePersonId} onChange={setSinglePersonId} persons={persons} />
               </div>
-              <div className="space-y-1.5">
-                <Label>LPO Number</Label>
-                <Input
-                  placeholder="e.g. LPO-2024-001"
-                  className="font-mono uppercase"
-                  value={singleLpoNumber}
-                  onChange={(e) => setSingleLpoNumber(e.target.value)}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>LPO Number</Label>
+                  <Input placeholder="e.g. LPO-001" className="font-mono uppercase"
+                    value={singleLpoNumber} onChange={(e) => setSingleLpoNumber(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>LPO Amount</Label>
+                  <AmountInput value={singleAmount} onChange={setSingleAmount} />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label>Branch</Label>
@@ -452,9 +393,7 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
             </>
           )}
 
-          {/* ══════════════════════════════════════════════════════════════
-              MODE: same_branch — 1 person, 1 branch, many LPO numbers
-          ══════════════════════════════════════════════════════════════ */}
+          {/* ══ SAME BRANCH ══ */}
           {mode === 'same_branch' && (
             <>
               <div className="space-y-1.5">
@@ -462,24 +401,39 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
                 <PersonSelector value={sbPersonId} onChange={setSbPersonId} persons={persons} />
               </div>
               <div className="space-y-1.5">
-                <Label>Branch <span className="text-muted-foreground font-normal">(shared across all LPOs below)</span></Label>
+                <Label>Branch <span className="text-muted-foreground font-normal normal-case">(applies to all LPOs below)</span></Label>
                 <BranchSelector value={sbBranch} onChange={setSbBranch} branches={branches} />
               </div>
               <div className="space-y-1.5">
-                <Label>LPO Numbers</Label>
-                <LpoNumberList
-                  rows={sbRows}
-                  onChange={(i, val) => setSbRows((r) => r.map((row, idx) => idx === i ? { lpoNumber: val } : row))}
-                  onAdd={() => setSbRows((r) => [...r, emptyLpoRow()])}
-                  onRemove={(i) => setSbRows((r) => r.filter((_, idx) => idx !== i))}
-                />
+                <div className="flex items-center justify-between">
+                  <Label>LPO Numbers &amp; Amounts</Label>
+                  <p className="text-xs text-muted-foreground font-mono">{sbRows.filter((r) => r.lpoNumber.trim()).length} valid</p>
+                </div>
+                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  {sbRows.map((row, i) => (
+                    <div key={i} className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2">
+                      <span className="text-xs font-mono text-muted-foreground w-5 text-right shrink-0">{i + 1}.</span>
+                      <Input className="font-mono uppercase h-8 text-sm" placeholder="LPO Number"
+                        value={row.lpoNumber}
+                        onChange={(e) => setSbRows((r) => r.map((x, idx) => idx === i ? { ...x, lpoNumber: e.target.value } : x))} />
+                      <AmountInput value={row.amount}
+                        onChange={(v) => setSbRows((r) => r.map((x, idx) => idx === i ? { ...x, amount: v } : x))} />
+                      <button type="button" disabled={sbRows.length === 1}
+                        onClick={() => setSbRows((r) => r.filter((_, idx) => idx !== i))}
+                        className="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground disabled:opacity-30">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => setSbRows((r) => [...r, emptyLpoRow()])} className="w-full border-dashed">
+                  <Plus className="w-3.5 h-3.5" />Add LPO
+                </Button>
               </div>
             </>
           )}
 
-          {/* ══════════════════════════════════════════════════════════════
-              MODE: multi_branch — 1 person, many LPOs, each own branch
-          ══════════════════════════════════════════════════════════════ */}
+          {/* ══ MULTI-BRANCH ══ */}
           {mode === 'multi_branch' && (
             <>
               <div className="space-y-1.5">
@@ -489,26 +443,21 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label>LPO Entries</Label>
-                  <p className="text-xs text-muted-foreground font-mono">
-                    {mbRows.filter((r) => r.lpoNumber.trim()).length} valid
-                  </p>
+                  <p className="text-xs text-muted-foreground font-mono">{mbRows.filter((r) => r.lpoNumber.trim()).length} valid</p>
                 </div>
                 <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                   {mbRows.map((row, i) => (
                     <div key={i} className="p-3 rounded-lg border border-border bg-accent/20 space-y-2">
-                      <div className="flex items-center gap-2">
+                      <div className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2">
                         <span className="text-xs font-mono text-muted-foreground w-5 text-right shrink-0">{i + 1}.</span>
-                        <Input
-                          className="font-mono uppercase h-8 text-sm flex-1"
-                          placeholder="LPO Number"
+                        <Input className="font-mono uppercase h-8 text-sm" placeholder="LPO Number"
                           value={row.lpoNumber}
-                          onChange={(e) => setMbRows((r) => r.map((x, idx) => idx === i ? { ...x, lpoNumber: e.target.value } : x))}
-                        />
-                        <button
-                          type="button"
+                          onChange={(e) => setMbRows((r) => r.map((x, idx) => idx === i ? { ...x, lpoNumber: e.target.value } : x))} />
+                        <AmountInput value={row.amount}
+                          onChange={(v) => setMbRows((r) => r.map((x, idx) => idx === i ? { ...x, amount: v } : x))} />
+                        <button type="button"
                           onClick={() => setMbRows((r) => r.filter((_, idx) => idx !== i))}
-                          className="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground"
-                        >
+                          className="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -516,79 +465,104 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
                         <BranchSelector
                           value={{ branchId: row.branchId, branchNameRaw: row.branchNameRaw, isNew: row.isNew }}
                           onChange={(v) => setMbRows((r) => r.map((x, idx) => idx === i ? { ...x, ...v } : x))}
-                          branches={branches}
-                        />
+                          branches={branches} />
                       </div>
                     </div>
                   ))}
                 </div>
-                <Button type="button" variant="outline" size="sm"
-                  onClick={() => setMbRows((r) => [...r, emptyMultiRow()])}
-                  className="w-full border-dashed">
+                <Button type="button" variant="outline" size="sm" onClick={() => setMbRows((r) => [...r, emptyMultiRow()])} className="w-full border-dashed">
                   <Plus className="w-3.5 h-3.5" />Add Row
                 </Button>
               </div>
             </>
           )}
 
-          {/* ══════════════════════════════════════════════════════════════
-              MODE: multi_person — 1 branch, rows of [LPO + person]
-          ══════════════════════════════════════════════════════════════ */}
+          {/* ══ MULTI-PERSON ══ */}
           {mode === 'multi_person' && (
             <>
+              {/* Branch — selected once at top */}
               <div className="space-y-1.5">
-                <Label>Branch <span className="text-muted-foreground font-normal">(shared across all LPOs below)</span></Label>
+                <Label>Branch <span className="text-muted-foreground font-normal normal-case">(applies to all LPOs below)</span></Label>
                 <BranchSelector value={mpBranch} onChange={setMpBranch} branches={branches} />
               </div>
+
+              {/* People involved — selected once at top as a chip list */}
+              <div className="space-y-1.5">
+                <Label>People Handling These LPOs <span className="text-muted-foreground font-normal normal-case">(select all that apply)</span></Label>
+                <div className="flex flex-wrap gap-2 p-3 rounded-lg border border-border bg-accent/20 min-h-[44px]">
+                  {persons.map((p) => {
+                    const selected = mpPersonIds.includes(p._id);
+                    return (
+                      <button key={p._id} type="button" onClick={() => toggleMpPerson(p._id)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-full text-xs font-medium transition-all border',
+                          selected
+                            ? 'bg-primary/15 border-primary/40 text-primary'
+                            : 'bg-background border-border text-muted-foreground hover:text-foreground hover:border-border'
+                        )}>
+                        {p.name}
+                      </button>
+                    );
+                  })}
+                  {persons.length === 0 && <p className="text-xs text-muted-foreground">No persons in system yet</p>}
+                </div>
+                {mpPersonIds.length > 0 && (
+                  <p className="text-xs text-muted-foreground font-mono">{mpPersonIds.length} person{mpPersonIds.length !== 1 ? 's' : ''} selected</p>
+                )}
+              </div>
+
+              {/* LPO rows — each has [LPO Number] [Amount] [Assign to] */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label>LPO Assignments</Label>
                   <p className="text-xs text-muted-foreground font-mono">
-                    {mpRows.filter((r) => r.lpoNumber.trim() && r.personId).length} complete
+                    {mpRows.filter((r) => r.lpoNumber.trim() && r.assignedPersonId).length} complete
                   </p>
                 </div>
-                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                   {mpRows.map((row, i) => (
-                    <div key={i} className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2 p-2.5 rounded-lg border border-border bg-accent/20">
+                    <div key={i} className="grid grid-cols-[auto_1fr_1fr_1fr_auto] items-center gap-2 p-2.5 rounded-lg border border-border bg-accent/20">
                       <span className="text-xs font-mono text-muted-foreground w-5 text-right">{i + 1}.</span>
-                      <Input
-                        className="font-mono uppercase h-8 text-sm"
-                        placeholder="LPO Number"
+                      <Input className="font-mono uppercase h-8 text-sm" placeholder="LPO No."
                         value={row.lpoNumber}
-                        onChange={(e) => setMpRows((r) => r.map((x, idx) => idx === i ? { ...x, lpoNumber: e.target.value } : x))}
-                      />
-                      <PersonSelector
-                        value={row.personId}
-                        onChange={(v) => setMpRows((r) => r.map((x, idx) => idx === i ? { ...x, personId: v } : x))}
-                        persons={persons}
-                        placeholder="Person…"
-                      />
-                      <button
-                        type="button"
+                        onChange={(e) => setMpRows((r) => r.map((x, idx) => idx === i ? { ...x, lpoNumber: e.target.value } : x))} />
+                      <AmountInput value={row.amount}
+                        onChange={(v) => setMpRows((r) => r.map((x, idx) => idx === i ? { ...x, amount: v } : x))} />
+                      {/* Assign to — only shows persons selected at top */}
+                      <Select
+                        value={row.assignedPersonId}
+                        onValueChange={(v) => setMpRows((r) => r.map((x, idx) => idx === i ? { ...x, assignedPersonId: v } : x))}
+                        disabled={mpPersonIds.length === 0}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder={mpPersonIds.length === 0 ? 'Pick people ↑' : 'Assign to…'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {persons.filter((p) => mpPersonIds.includes(p._id)).map((p) => (
+                            <SelectItem key={p._id} value={p._id}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <button type="button" disabled={mpRows.length === 1}
                         onClick={() => setMpRows((r) => r.filter((_, idx) => idx !== i))}
-                        disabled={mpRows.length === 1}
-                        className="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground disabled:opacity-30"
-                      >
+                        className="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground disabled:opacity-30">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ))}
                 </div>
-                <Button type="button" variant="outline" size="sm"
-                  onClick={() => setMpRows((r) => [...r, emptyPersonRow()])}
-                  className="w-full border-dashed">
+                <Button type="button" variant="outline" size="sm" onClick={() => setMpRows((r) => [...r, emptyMpRow()])} className="w-full border-dashed">
                   <Plus className="w-3.5 h-3.5" />Add Row
                 </Button>
                 <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2.5">
                   <p className="text-xs text-blue-400 font-mono">
-                    💡 Each LPO goes to a different person. They will each appear as individual entries in the table.
+                    💡 Select all people involved above first, then assign each LPO to one of them.
                   </p>
                 </div>
               </div>
             </>
           )}
 
-          {/* ── Issue now (all modes) ── */}
+          {/* Issue now toggle */}
           <div className="flex items-center justify-between rounded-lg border border-border bg-accent/30 px-4 py-3">
             <div>
               <p className="text-sm font-medium text-foreground">Mark as Issued Now</p>
@@ -597,23 +571,11 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
             <Switch checked={issueNow} onCheckedChange={setIssueNow} />
           </div>
 
-          {/* ── Submit ── */}
           <div className="flex gap-2 pt-1">
-            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              className="flex-1"
-              disabled={loading}
-              onClick={SUBMIT_MAP[mode]}
-            >
-              {loading
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <Plus className="w-4 h-4" />}
-              {mode === 'single'
-                ? 'Create LPO'
-                : `Create ${validCount() || ''} LPO${validCount() !== 1 ? 's' : ''}`}
+            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+            <Button type="button" className="flex-1" disabled={loading} onClick={SUBMIT_MAP[mode]}>
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {mode === 'single' ? 'Create LPO' : `Create ${validCount() || ''} LPO${validCount() !== 1 ? 's' : ''}`}
             </Button>
           </div>
         </div>

@@ -21,6 +21,11 @@ const lpoSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    // LPO value in KES (before VAT)
+    amount: {
+      type: Number,
+      default: null,
+    },
     date: {
       type: Date,
       required: true,
@@ -35,11 +40,13 @@ const lpoSchema = new mongoose.Schema(
       ref: 'ResponsiblePerson',
       required: true,
     },
+    // Batch grouping — LPOs sharing a batchId were created together
     batchId: {
       type: String,
       default: null,
       index: true,
     },
+    // Status timestamps
     issuedAt:    { type: Date, default: null },
     completedAt: { type: Date, default: null },
     checkedAt:   { type: Date, default: null },
@@ -48,6 +55,7 @@ const lpoSchema = new mongoose.Schema(
       enum: ['pending', 'issued', 'completed', 'checked'],
       default: 'pending',
     },
+    // Error logging
     errors: {
       type: [String],
       enum: ['none', 'wrong_item', 'wrong_quantity', 'wrong_barcode', 'missing_item'],

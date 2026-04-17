@@ -17,6 +17,7 @@ const buyerRoutes   = require('./routes/buyer');
 const reportRoutes  = require('./routes/reports');
 const personRoutes  = require('./routes/persons');
 const branchRoutes  = require('./routes/branches');
+const invoiceRoutes = require('./routes/invoices');
 
 const app = express();
 
@@ -66,6 +67,7 @@ app.use('/api/buyer',    buyerRoutes);
 app.use('/api/reports',  reportRoutes);
 app.use('/api/persons',  personRoutes);
 app.use('/api/branches', branchRoutes);
+app.use('/api/invoices', invoiceRoutes);
 
 // Root route (for Render)
 app.get('/', (req, res) => {
