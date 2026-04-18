@@ -310,7 +310,7 @@ export default function InvoicePage() {
   const [refreshing, setRefreshing]           = useState(false);
   const [modalOpen, setModalOpen]             = useState(false);
   const [search, setSearch]                   = useState('');
-  const [statusFilter, setStatusFilter]       = useState('');
+  const [statusFilter, setStatusFilter]       = useState('all');
   const [dateFilter, setDateFilter]           = useState({ start: '', end: '' });
 
   // Summary stats
@@ -322,7 +322,7 @@ export default function InvoicePage() {
       const params = {};
       if (dateFilter.start) params.startDate = dateFilter.start;
       if (dateFilter.end)   params.endDate   = dateFilter.end;
-      if (statusFilter)     params.status    = statusFilter;
+      if (statusFilter && statusFilter !== 'all') params.status = statusFilter;
       const res = await api.get('/invoices', { params });
       setGroupedInvoices(res.data);
     } finally {
@@ -433,7 +433,7 @@ export default function InvoicePage() {
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All statuses</SelectItem>
+            <SelectItem value="all">All statuses</SelectItem>
             <SelectItem value="draft">Draft</SelectItem>
             <SelectItem value="submitted">Submitted</SelectItem>
             <SelectItem value="approved">Approved</SelectItem>
@@ -447,8 +447,8 @@ export default function InvoicePage() {
           <span className="text-xs font-mono text-muted-foreground">To</span>
           <Input type="date" className="h-8 w-36 text-sm" value={dateFilter.end}
             onChange={(e) => setDateFilter((f) => ({ ...f, end: e.target.value }))} />
-          {(dateFilter.start || dateFilter.end || statusFilter) && (
-            <Button variant="ghost" size="sm" onClick={() => { setDateFilter({ start: '', end: '' }); setStatusFilter(''); }}>
+          {(dateFilter.start || dateFilter.end || statusFilter !== 'all') && (
+            <Button variant="ghost" size="sm" onClick={() => { setDateFilter({ start: '', end: '' }); setStatusFilter('all'); }}>
               Clear
             </Button>
           )}
