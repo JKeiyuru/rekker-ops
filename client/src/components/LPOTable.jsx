@@ -1,4 +1,6 @@
 // client/src/components/LPOTable.jsx
+// Displays LPOs grouped by batchId with action buttons.
+// Fixes: added Amount column; fixed batch row alignment (removed phantom empty <td>).
 
 import { useState } from 'react';
 import { format } from 'date-fns';
@@ -12,12 +14,42 @@ import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function TimeCell({ timestamp }) {
   if (!timestamp) return <span className="text-muted-foreground/40 font-mono text-xs">—</span>;
   return (
     <div className="flex flex-col">
       <span className="font-mono text-xs text-foreground">{format(new Date(timestamp), 'HH:mm')}</span>
       <span className="font-mono text-[10px] text-muted-foreground">{format(new Date(timestamp), 'dd/MM')}</span>
+    </div>
+  );
+}
+
+function AmountCell({ amount }) {
+  if (amount == null) return <span className="text-muted-foreground/40 font-mono text-xs">—</span>;
+  return (
+    <span className="font-mono text-xs text-foreground">
+      {Number(amount).toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+    </span>
+  );
+}
+
+function BranchCell({ lpo }) {
+  const name = lpo.branch?.name || lpo.branchNameRaw || null;
+  const isUnverified = lpo.branch && !lpo.branch.isVerified;
+  if (!name) return <span className="text-muted-foreground/40 font-mono text-xs">—</span>;
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <span className="text-xs text-foreground truncate max-w-[100px]">{name}</span>
+      {isUnverified && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger><AlertCircle className="w-3 h-3 text-amber-400 shrink-0" /></TooltipTrigger>
+            <TooltipContent>Unverified branch — pending admin approval</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
     </div>
   );
 }
@@ -38,46 +70,40 @@ function ActionBtn({ onClick, disabled, loading, icon: Icon, label, variant, tit
   );
 }
 
-// Group LPOs by batchId, preserving order
+// ── Group LPOs by batchId, preserving display order ──────────────────────────
 function groupLpos(lpos) {
   const groups = [];
-  const seen = {};
+  const seen   = {};
   for (const lpo of lpos) {
     if (!lpo.batchId) {
       groups.push({ batchId: null, lpos: [lpo] });
+    } else if (seen[lpo.batchId] !== undefined) {
+      groups[seen[lpo.batchId]].lpos.push(lpo);
     } else {
-      if (seen[lpo.batchId] !== undefined) {
-        groups[seen[lpo.batchId]].lpos.push(lpo);
-      } else {
-        seen[lpo.batchId] = groups.length;
-        groups.push({ batchId: lpo.batchId, lpos: [lpo] });
-      }
+      seen[lpo.batchId] = groups.length;
+      groups.push({ batchId: lpo.batchId, lpos: [lpo] });
     }
   }
   return groups;
 }
 
-function BranchCell({ lpo }) {
-  const name = lpo.branch?.name || lpo.branchNameRaw || '—';
-  const isUnverified = lpo.branch && !lpo.branch.isVerified;
-  if (name === '—') return <span className="text-muted-foreground/40 font-mono text-xs">—</span>;
-  return (
-    <div className="flex items-center gap-1.5 min-w-0">
-      <span className="text-xs text-foreground truncate max-w-[100px]">{name}</span>
-      {isUnverified && (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger>
-              <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
-            </TooltipTrigger>
-            <TooltipContent>Unverified branch — pending admin approval</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
-    </div>
-  );
-}
+// ── Column definitions ────────────────────────────────────────────────────────
+// Keeping this as an array makes it trivial to add/remove columns in one place.
+const HEADERS = [
+  'LPO Number',
+  'Branch',
+  'Amount (KES)',
+  'Delivery',
+  'Status',
+  'Issued',
+  'Completed',
+  'Checked',
+  'Person',
+  'Errors',
+  'Actions',
+];
 
+// ── Main component ────────────────────────────────────────────────────────────
 export default function LPOTable({ lpos, onUpdated, onDeleted }) {
   const { user } = useAuthStore();
   const [loadingId, setLoadingId] = useState(null);
@@ -99,13 +125,13 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
     }
   };
 
-  const updateBatchStatus = async (batchId, action, lpos) => {
+  const updateBatchStatus = async (batchId, action, batchLpos) => {
     setLoadingId(`batch-${batchId}-${action}`);
     try {
       const res = await api.patch(`/lpos/batch/${batchId}/status`, { action });
       res.data.forEach((updated) => onUpdated(updated));
       const labels = { issue: 'Issued', complete: 'Completed', check: 'Checked ✓' };
-      toast.success(`Batch (${lpos.length} LPOs) — ${labels[action]}`);
+      toast.success(`Batch (${batchLpos.length} LPOs) — ${labels[action]}`);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Batch action failed');
     } finally {
@@ -134,8 +160,6 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
 
   const groups = groupLpos(lpos);
 
-  const HEADERS = ['LPO Number', 'Branch', 'Delivery', 'Status', 'Issued', 'Completed', 'Checked', 'Person', 'Errors', 'Actions'];
-
   return (
     <div className="overflow-x-auto rounded-lg border border-rekker-border">
       <table className="w-full text-sm">
@@ -151,40 +175,34 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
         <tbody>
           {groups.map((group, gi) => {
             const isBatch = !!group.batchId;
-            // Determine what batch actions are possible
+
             const batchCanIssue    = isBatch && group.lpos.some((l) => !l.issuedAt);
             const batchCanComplete = isBatch && group.lpos.some((l) => l.issuedAt && !l.completedAt);
             const batchCanCheck    = isBatch && group.lpos.some((l) => l.completedAt && !l.checkedAt);
             const batchLoading     = (a) => loadingId === `batch-${group.batchId}-${a}`;
 
             return group.lpos.map((lpo, li) => {
-              const isLoading = (a) => loadingId === `${lpo._id}-${a}`;
+              const isLoading      = (a) => loadingId === `${lpo._id}-${a}`;
               const isFirstInBatch = li === 0;
-              const isLastInBatch  = li === group.lpos.length - 1;
-              const isDelayed = lpo.deliveryDate && new Date(lpo.deliveryDate) < new Date() && lpo.status !== 'checked';
+              const isDelayed      = lpo.deliveryDate && new Date(lpo.deliveryDate) < new Date() && lpo.status !== 'checked';
 
               return (
                 <tr
                   key={lpo._id}
                   className={cn(
                     'border-b border-rekker-border/50 transition-colors hover:bg-accent/20',
-                    gi % 2 === 0 ? 'bg-transparent' : 'bg-rekker-surface/20',
-                    isBatch && 'relative'
+                    gi % 2 === 0 ? 'bg-transparent' : 'bg-rekker-surface/20'
                   )}
                 >
-                  {/* Batch left accent bar */}
-                  {isBatch && (
-                    <td className="w-0 p-0 relative">
-                      <div className={cn(
-                        'absolute left-0 w-0.5 bg-primary/40',
-                        isFirstInBatch ? 'top-2 bottom-0 rounded-t' : isLastInBatch ? 'top-0 bottom-2 rounded-b' : 'top-0 bottom-0'
-                      )} />
-                    </td>
-                  )}
-
-                  {/* LPO Number */}
-                  <td className={cn('px-3 py-3 whitespace-nowrap', isBatch && 'pl-4')}>
+                  {/* ── LPO Number (with batch accent + icon) ── */}
+                  <td className="px-3 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
+                      {isBatch && (
+                        <div className={cn(
+                          'w-0.5 self-stretch rounded-full mr-0.5',
+                          isFirstInBatch ? 'bg-primary/60' : 'bg-primary/30'
+                        )} />
+                      )}
                       {isBatch && isFirstInBatch && (
                         <TooltipProvider>
                           <Tooltip>
@@ -196,14 +214,19 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
                         </TooltipProvider>
                       )}
                       {isBatch && !isFirstInBatch && <div className="w-3" />}
-                      <span className="font-mono text-xs font-semibold text-primary tracking-wider">{lpo.lpoNumber}</span>
+                      <span className="font-mono text-xs font-semibold text-primary tracking-wider">
+                        {lpo.lpoNumber}
+                      </span>
                     </div>
                   </td>
 
-                  {/* Branch */}
+                  {/* ── Branch ── */}
                   <td className="px-3 py-3"><BranchCell lpo={lpo} /></td>
 
-                  {/* Delivery */}
+                  {/* ── Amount ── */}
+                  <td className="px-3 py-3"><AmountCell amount={lpo.amount} /></td>
+
+                  {/* ── Delivery Date ── */}
                   <td className="px-3 py-3 whitespace-nowrap">
                     <span className={cn('font-mono text-xs', isDelayed ? 'text-destructive font-semibold' : 'text-foreground')}>
                       {lpo.deliveryDate ? format(new Date(lpo.deliveryDate), 'dd/MM/yy') : '—'}
@@ -211,28 +234,28 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
                     </span>
                   </td>
 
-                  {/* Status */}
+                  {/* ── Status ── */}
                   <td className="px-3 py-3 whitespace-nowrap"><StatusBadge status={lpo.status} /></td>
 
-                  {/* Timestamps */}
-                  <td className="px-3 py-3"><TimeCell timestamp={lpo.issuedAt} /></td>
+                  {/* ── Timestamps ── */}
+                  <td className="px-3 py-3"><TimeCell timestamp={lpo.issuedAt}    /></td>
                   <td className="px-3 py-3"><TimeCell timestamp={lpo.completedAt} /></td>
-                  <td className="px-3 py-3"><TimeCell timestamp={lpo.checkedAt} /></td>
+                  <td className="px-3 py-3"><TimeCell timestamp={lpo.checkedAt}   /></td>
 
-                  {/* Person */}
+                  {/* ── Person ── */}
                   <td className="px-3 py-3 whitespace-nowrap">
                     <span className="text-xs text-foreground">{lpo.responsiblePerson?.name || '—'}</span>
                   </td>
 
-                  {/* Errors */}
+                  {/* ── Errors ── */}
                   <td className="px-3 py-3">
                     <ErrorLogger lpo={lpo} onUpdated={onUpdated} canEdit={canEdit} />
                   </td>
 
-                  {/* Actions */}
+                  {/* ── Actions ── */}
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1 flex-nowrap">
-                      {/* Batch-level actions shown on first row only */}
+                      {/* Batch-level actions — shown only on first row */}
                       {isBatch && isFirstInBatch && canEdit && (
                         <>
                           {batchCanIssue && (
@@ -241,12 +264,12 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
                               loading={batchLoading('issue')} />
                           )}
                           {batchCanComplete && (
-                            <ActionBtn icon={ClipboardCheck} label="Complete All" title="Complete all in batch" variant="default"
+                            <ActionBtn icon={ClipboardCheck} label="Complete All" title="Complete all" variant="default"
                               onClick={() => updateBatchStatus(group.batchId, 'complete', group.lpos)}
                               loading={batchLoading('complete')} />
                           )}
                           {batchCanCheck && (
-                            <ActionBtn icon={CheckCheck} label="Check All" title="Check all in batch" variant="success"
+                            <ActionBtn icon={CheckCheck} label="Check All" title="Check all" variant="success"
                               onClick={() => updateBatchStatus(group.batchId, 'check', group.lpos)}
                               loading={batchLoading('check')} />
                           )}

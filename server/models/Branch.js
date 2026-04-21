@@ -9,6 +9,20 @@ const branchSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    // GPS coordinates for location validation
+    latitude: {
+      type: Number,
+      default: null,
+    },
+    longitude: {
+      type: Number,
+      default: null,
+    },
+    // Radius in meters within which a check-in is considered valid
+    allowedRadius: {
+      type: Number,
+      default: 100,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -23,7 +37,6 @@ const branchSchema = new mongoose.Schema(
       ref: 'User',
     },
     notificationRead: {
-      // admin has seen the pending branch notification
       type: Boolean,
       default: false,
     },

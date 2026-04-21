@@ -17,7 +17,9 @@ const buyerRoutes   = require('./routes/buyer');
 const reportRoutes  = require('./routes/reports');
 const personRoutes  = require('./routes/persons');
 const branchRoutes  = require('./routes/branches');
-const invoiceRoutes = require('./routes/invoices');
+const invoiceRoutes  = require('./routes/invoices');
+const checkinRoutes  = require('./routes/checkins');
+const assignmentRoutes = require('./routes/assignments');
 
 const app = express();
 
@@ -67,7 +69,9 @@ app.use('/api/buyer',    buyerRoutes);
 app.use('/api/reports',  reportRoutes);
 app.use('/api/persons',  personRoutes);
 app.use('/api/branches', branchRoutes);
-app.use('/api/invoices', invoiceRoutes);
+app.use('/api/invoices',     invoiceRoutes);
+app.use('/api/checkins',     checkinRoutes);
+app.use('/api/assignments',  assignmentRoutes);
 
 // Root route (for Render)
 app.get('/', (req, res) => {

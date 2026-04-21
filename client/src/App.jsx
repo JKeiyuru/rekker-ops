@@ -4,20 +4,25 @@ import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 
-import AppLayout      from '@/components/layout/AppLayout';
-import ProtectedRoute from '@/components/ProtectedRoute';
+import AppLayout        from '@/components/layout/AppLayout';
+import ProtectedRoute   from '@/components/ProtectedRoute';
 
-import Login        from '@/pages/Login';
-import Dashboard    from '@/pages/Dashboard';
-import LPOsPage     from '@/pages/LPOsPage';
-import InvoicePage  from '@/pages/InvoicePage';
-import ReportsPage  from '@/pages/ReportsPage';
-import UsersPage    from '@/pages/UsersPage';
-import PersonsPage  from '@/pages/PersonsPage';
-import BranchesPage from '@/pages/BranchesPage';
+import Login            from '@/pages/Login';
+import Dashboard        from '@/pages/Dashboard';
+import LPOsPage         from '@/pages/LPOsPage';
+import InvoicePage      from '@/pages/InvoicePage';
+import ReportsPage      from '@/pages/ReportsPage';
+import UsersPage        from '@/pages/UsersPage';
+import PersonsPage      from '@/pages/PersonsPage';
+import BranchesPage     from '@/pages/BranchesPage';
+import CheckInPage      from '@/pages/CheckInPage';
+import AssignmentsPage  from '@/pages/AssignmentsPage';
+import AttendancePage   from '@/pages/AttendancePage';
 
-const ADMIN_ROLES = ['super_admin', 'admin'];
-const ALL_ROLES   = ['super_admin', 'admin', 'team_lead', 'viewer'];
+const ADMIN       = ['super_admin', 'admin'];
+const LEAD        = ['super_admin', 'admin', 'team_lead'];
+const ALL         = ['super_admin', 'admin', 'team_lead', 'viewer'];
+const MERCH_ALL   = ['super_admin', 'admin', 'team_lead', 'merchandiser'];
 
 export default function App() {
   const { fetchMe, token } = useAuthStore();
@@ -27,7 +32,7 @@ export default function App() {
     else useAuthStore.setState({ loading: false });
   }, [token]);
 
-  const Protected = ({ children, roles }) => (
+  const P = ({ children, roles }) => (
     <ProtectedRoute roles={roles}>
       <AppLayout>{children}</AppLayout>
     </ProtectedRoute>
@@ -37,14 +42,22 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
 
-      <Route path="/"         element={<Protected><Navigate to="/dashboard" replace /></Protected>} />
-      <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
-      <Route path="/lpos"      element={<Protected roles={ALL_ROLES}><LPOsPage /></Protected>} />
-      <Route path="/invoices"  element={<Protected roles={ALL_ROLES}><InvoicePage /></Protected>} />
-      <Route path="/reports"   element={<Protected roles={ADMIN_ROLES}><ReportsPage /></Protected>} />
-      <Route path="/users"     element={<Protected roles={ADMIN_ROLES}><UsersPage /></Protected>} />
-      <Route path="/persons"   element={<Protected roles={ADMIN_ROLES}><PersonsPage /></Protected>} />
-      <Route path="/branches"  element={<Protected roles={ADMIN_ROLES}><BranchesPage /></Protected>} />
+      {/* Packaging module */}
+      <Route path="/"          element={<P><Navigate to="/dashboard" replace /></P>} />
+      <Route path="/dashboard" element={<P><Dashboard /></P>} />
+      <Route path="/lpos"      element={<P roles={ALL}><LPOsPage /></P>} />
+      <Route path="/invoices"  element={<P roles={ALL}><InvoicePage /></P>} />
+      <Route path="/reports"   element={<P roles={ADMIN}><ReportsPage /></P>} />
+
+      {/* Merchandising module */}
+      <Route path="/checkin"     element={<P roles={MERCH_ALL}><CheckInPage /></P>} />
+      <Route path="/assignments" element={<P roles={LEAD}><AssignmentsPage /></P>} />
+      <Route path="/attendance"  element={<P roles={LEAD}><AttendancePage /></P>} />
+
+      {/* Admin module */}
+      <Route path="/users"    element={<P roles={ADMIN}><UsersPage /></P>} />
+      <Route path="/persons"  element={<P roles={ADMIN}><PersonsPage /></P>} />
+      <Route path="/branches" element={<P roles={ADMIN}><BranchesPage /></P>} />
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
