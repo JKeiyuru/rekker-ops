@@ -12,10 +12,13 @@ const POPULATE = [
   { path: 'branch', select: 'name latitude longitude allowedRadius' },
 ];
 
-// ── Haversine formula: distance between two GPS points in meters ──
+// Roles that can manage merchandising
+const MERCH_MANAGE = ['super_admin', 'admin', 'team_lead', 'merchandising_team_lead'];
+
+// ── Haversine distance in meters ──────────────────────────────────────────────
 function haversineDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // Earth radius in meters
-  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =
@@ -24,37 +27,43 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ── Determine check-in status based on distance ──
 function getLocationStatus(distanceMeters, allowedRadius, gpsAvailable) {
-  if (!gpsAvailable) return 'LOCATION_DISABLED';
-  if (distanceMeters === null) return 'LOCATION_DISABLED';
-  if (distanceMeters <= allowedRadius) return 'VALID';
-  return 'MISMATCH';
+  if (!gpsAvailable || distanceMeters === null) return 'LOCATION_DISABLED';
+  return distanceMeters <= allowedRadius ? 'VALID' : 'MISMATCH';
 }
 
-// GET /api/checkins?date=YYYY-MM-DD&merchandiserId=&branchId=
-router.get('/', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+// Compute lateness in minutes from expectedCheckIn string ("HH:MM") vs actual Date
+function computeLateMinutes(expectedCheckIn, actualTime) {
+  if (!expectedCheckIn || !actualTime) return null;
+  const [h, m] = expectedCheckIn.split(':').map(Number);
+  const expected = new Date(actualTime);
+  expected.setHours(h, m, 0, 0);
+  return Math.round((new Date(actualTime) - expected) / 60000);
+}
+
+// GET /api/checkins
+router.get('/', protect, async (req, res) => {
   try {
     const { date, merchandiserId, branchId } = req.query;
     const filter = {};
-    if (date)          filter.date = date;
+    if (date)           filter.date = date;
     if (merchandiserId) filter.merchandiser = merchandiserId;
-    if (branchId)      filter.branch = branchId;
+    if (branchId)       filter.branch = branchId;
 
-    const sessions = await CheckIn.find(filter)
-      .populate(POPULATE)
-      .sort({ checkInTime: -1 });
+    // Merchandisers only see their own
+    if (req.user.role === 'merchandiser') filter.merchandiser = req.user._id;
 
+    const sessions = await CheckIn.find(filter).populate(POPULATE).sort({ checkInTime: -1 });
     res.json(sessions);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// GET /api/checkins/my — active user's sessions for today
+// GET /api/checkins/my — logged-in user's sessions, optionally by date
 router.get('/my', protect, async (req, res) => {
   try {
-    const date = new Date().toISOString().split('T')[0];
+    const date = req.query.date || new Date().toISOString().split('T')[0];
     const sessions = await CheckIn.find({ merchandiser: req.user._id, date })
       .populate(POPULATE)
       .sort({ checkInTime: 1 });
@@ -64,8 +73,27 @@ router.get('/my', protect, async (req, res) => {
   }
 });
 
-// GET /api/checkins/summary?date=YYYY-MM-DD — daily admin summary
-router.get('/summary', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+// GET /api/checkins/my/history — past sessions for merchandiser dashboard
+router.get('/my/history', protect, async (req, res) => {
+  try {
+    const { days = 30 } = req.query;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - Number(days));
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+
+    const sessions = await CheckIn.find({
+      merchandiser: req.user._id,
+      date: { $gte: cutoffStr },
+    }).populate(POPULATE).sort({ date: -1, checkInTime: -1 });
+
+    res.json(sessions);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/checkins/summary
+router.get('/summary', protect, async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
@@ -77,32 +105,29 @@ router.get('/summary', protect, authorize('super_admin', 'admin', 'team_lead'), 
       ]),
     ]);
 
-    // Build summary per merchandiser
-    const assignedIds = new Set(assignments.map((a) => a.merchandiser._id.toString()));
-    const checkedInIds = new Set(sessions.map((s) => s.merchandiser._id?.toString()));
+    const assignedIds  = new Set(assignments.map((a) => a.merchandiser?._id?.toString()));
+    const checkedInIds = new Set(sessions.map((s) => s.merchandiser?._id?.toString()));
 
-    const summary = {
+    res.json({
       date,
-      totalAssigned: assignments.length,
-      totalCheckedIn: checkedInIds.size,
-      totalAbsent: [...assignedIds].filter((id) => !checkedInIds.has(id)).length,
-      totalSessions: sessions.length,
+      totalAssigned:    assignments.length,
+      totalCheckedIn:   checkedInIds.size,
+      totalAbsent:      [...assignedIds].filter((id) => !checkedInIds.has(id)).length,
+      totalSessions:    sessions.length,
       completeSessions: sessions.filter((s) => s.sessionStatus === 'COMPLETE').length,
-      incompleteSessions: sessions.filter((s) => s.sessionStatus === 'INCOMPLETE' || s.sessionStatus === 'ACTIVE').length,
-      flaggedSessions: sessions.filter((s) => s.checkInStatus === 'MISMATCH' || s.checkOutStatus === 'MISMATCH').length,
-      offlineSessions: sessions.filter((s) => s.isOfflineEntry).length,
+      incompleteSessions: sessions.filter((s) => ['INCOMPLETE', 'ACTIVE'].includes(s.sessionStatus)).length,
+      flaggedSessions:  sessions.filter((s) => ['MISMATCH'].includes(s.checkInStatus)).length,
+      offlineSessions:  sessions.filter((s) => s.isOfflineEntry).length,
       sessions,
       assignments,
-    };
-
-    res.json(summary);
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// GET /api/checkins/reports/merchandiser/:id — per-merchandiser report
-router.get('/reports/merchandiser/:id', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+// GET /api/checkins/reports/merchandiser/:id
+router.get('/reports/merchandiser/:id', protect, async (req, res) => {
   try {
     const { start, end } = req.query;
     const filter = { merchandiser: req.params.id };
@@ -112,25 +137,27 @@ router.get('/reports/merchandiser/:id', protect, authorize('super_admin', 'admin
       if (end)   filter.date.$lte = end;
     }
 
-    const sessions = await CheckIn.find(filter).populate(POPULATE).sort({ checkInTime: -1 });
-    const assignments = await Assignment.find({
-      merchandiser: req.params.id,
-      ...(filter.date ? { date: filter.date } : {}),
-    });
+    const sessions     = await CheckIn.find(filter).populate(POPULATE).sort({ checkInTime: -1 });
+    const assignments  = await Assignment.find({ merchandiser: req.params.id, ...(filter.date ? { date: filter.date } : {}) });
 
-    const totalMinutes = sessions.reduce((s, c) => s + (c.durationMinutes || 0), 0);
-    const uniqueDates = new Set(sessions.map((s) => s.date));
+    const totalMinutes  = sessions.reduce((s, c) => s + (c.durationMinutes || 0), 0);
+    const uniqueDates   = new Set(sessions.map((s) => s.date));
     const assignedDates = new Set(assignments.map((a) => a.date));
+    const lateSessions  = sessions.filter((s) => s.lateByMinutes != null && s.lateByMinutes > 0);
 
     res.json({
-      totalSessions: sessions.length,
-      completeSessions: sessions.filter((s) => s.sessionStatus === 'COMPLETE').length,
+      totalSessions:      sessions.length,
+      completeSessions:   sessions.filter((s) => s.sessionStatus === 'COMPLETE').length,
       incompleteSessions: sessions.filter((s) => ['INCOMPLETE', 'ACTIVE'].includes(s.sessionStatus)).length,
       locationMismatches: sessions.filter((s) => s.checkInStatus === 'MISMATCH').length,
-      totalHoursWorked: (totalMinutes / 60).toFixed(1),
-      daysPresent: uniqueDates.size,
-      daysAssigned: assignedDates.size,
-      daysAbsent: [...assignedDates].filter((d) => !uniqueDates.has(d)).length,
+      totalHoursWorked:   (totalMinutes / 60).toFixed(1),
+      daysPresent:        uniqueDates.size,
+      daysAssigned:       assignedDates.size,
+      daysAbsent:         [...assignedDates].filter((d) => !uniqueDates.has(d)).length,
+      lateArrivals:       lateSessions.length,
+      avgLateMinutes:     lateSessions.length
+        ? Math.round(lateSessions.reduce((s, c) => s + c.lateByMinutes, 0) / lateSessions.length)
+        : 0,
       sessions,
     });
   } catch (err) {
@@ -138,29 +165,25 @@ router.get('/reports/merchandiser/:id', protect, authorize('super_admin', 'admin
   }
 });
 
-// POST /api/checkins/checkin — create a new check-in session
+// POST /api/checkins/checkin
 router.post('/checkin', protect, async (req, res) => {
   try {
     const { branchId, lat, lng, gpsAvailable, deviceInfo, isOfflineEntry, checkInTime } = req.body;
-
     if (!branchId) return res.status(400).json({ message: 'Branch required' });
 
     const branch = await Branch.findById(branchId);
     if (!branch) return res.status(404).json({ message: 'Branch not found' });
 
-    // Check for already active session at this branch today
-    const date = new Date().toISOString().split('T')[0];
-    const existingActive = await CheckIn.findOne({
+    const date = (checkInTime ? new Date(checkInTime) : new Date()).toISOString().split('T')[0];
+
+    // Look up assignment for expected time
+    const assignment = await Assignment.findOne({
       merchandiser: req.user._id,
       branch: branchId,
       date,
-      checkOutTime: null,
     });
-    if (existingActive) {
-      return res.status(400).json({ message: 'You already have an active session at this branch today' });
-    }
 
-    // Calculate distance
+    // Distance calculation
     let distanceMeters = null;
     if (gpsAvailable && lat != null && lng != null && branch.latitude != null && branch.longitude != null) {
       distanceMeters = Math.round(haversineDistance(lat, lng, branch.latitude, branch.longitude));
@@ -168,19 +191,24 @@ router.post('/checkin', protect, async (req, res) => {
 
     const checkInStatus = isOfflineEntry
       ? 'OFFLINE'
-      : getLocationStatus(distanceMeters, branch.allowedRadius, gpsAvailable);
+      : getLocationStatus(distanceMeters, branch.allowedRadius || 100, gpsAvailable);
+
+    const actualTime = checkInTime ? new Date(checkInTime) : new Date();
+    const lateByMinutes = computeLateMinutes(assignment?.expectedCheckIn, actualTime);
 
     const session = await CheckIn.create({
-      merchandiser: req.user._id,
-      branch: branchId,
+      merchandiser:          req.user._id,
+      branch:                branchId,
       date,
-      checkInTime: checkInTime ? new Date(checkInTime) : new Date(),
-      checkInLocation: { lat: lat || null, lng: lng || null },
+      expectedCheckIn:       assignment?.expectedCheckIn || null,
+      lateByMinutes,
+      checkInTime:           actualTime,
+      checkInLocation:       { lat: lat || null, lng: lng || null },
       checkInDistanceMeters: distanceMeters,
       checkInStatus,
-      sessionStatus: 'ACTIVE',
-      isOfflineEntry: !!isOfflineEntry,
-      deviceInfo: deviceInfo || '',
+      sessionStatus:         'ACTIVE',
+      isOfflineEntry:        !!isOfflineEntry,
+      deviceInfo:            deviceInfo || '',
     });
 
     await session.populate(POPULATE);
@@ -190,7 +218,7 @@ router.post('/checkin', protect, async (req, res) => {
   }
 });
 
-// PATCH /api/checkins/:id/checkout — complete a session
+// PATCH /api/checkins/:id/checkout
 router.patch('/:id/checkout', protect, async (req, res) => {
   try {
     const { lat, lng, gpsAvailable, isOfflineEntry, checkOutTime } = req.body;
@@ -198,21 +226,17 @@ router.patch('/:id/checkout', protect, async (req, res) => {
     const session = await CheckIn.findById(req.params.id).populate('branch');
     if (!session) return res.status(404).json({ message: 'Session not found' });
 
-    // Only the merchandiser who owns it (or admin) can check out
     if (
       session.merchandiser.toString() !== req.user._id.toString() &&
-      !['super_admin', 'admin'].includes(req.user.role)
+      !['super_admin', 'admin', 'team_lead', 'merchandising_team_lead'].includes(req.user.role)
     ) {
       return res.status(403).json({ message: 'Not your session' });
     }
 
-    if (session.checkOutTime) {
-      return res.status(400).json({ message: 'Already checked out' });
-    }
+    if (session.checkOutTime) return res.status(400).json({ message: 'Already checked out' });
 
     const outTime = checkOutTime ? new Date(checkOutTime) : new Date();
 
-    // Distance at checkout
     let distanceMeters = null;
     if (gpsAvailable && lat != null && lng != null &&
         session.branch?.latitude != null && session.branch?.longitude != null) {
@@ -226,19 +250,15 @@ router.patch('/:id/checkout', protect, async (req, res) => {
       : getLocationStatus(distanceMeters, session.branch?.allowedRadius || 100, gpsAvailable);
 
     const durationMinutes = Math.round((outTime - session.checkInTime) / 60000);
+    const isFlagged = session.checkInStatus === 'MISMATCH' || checkOutStatus === 'MISMATCH';
 
-    const isFlagged =
-      session.checkInStatus === 'MISMATCH' ||
-      checkOutStatus === 'MISMATCH' ||
-      session.checkInStatus === 'LOCATION_DISABLED';
-
-    session.checkOutTime        = outTime;
-    session.checkOutLocation    = { lat: lat || null, lng: lng || null };
+    session.checkOutTime           = outTime;
+    session.checkOutLocation       = { lat: lat || null, lng: lng || null };
     session.checkOutDistanceMeters = distanceMeters;
-    session.checkOutStatus      = checkOutStatus;
-    session.durationMinutes     = durationMinutes;
-    session.sessionStatus       = isFlagged ? 'FLAGGED' : 'COMPLETE';
-    session.isOfflineEntry      = session.isOfflineEntry || !!isOfflineEntry;
+    session.checkOutStatus         = checkOutStatus;
+    session.durationMinutes        = durationMinutes;
+    session.sessionStatus          = isFlagged ? 'FLAGGED' : 'COMPLETE';
+    session.isOfflineEntry         = session.isOfflineEntry || !!isOfflineEntry;
 
     await session.save();
     await session.populate(POPULATE);
@@ -248,10 +268,10 @@ router.patch('/:id/checkout', protect, async (req, res) => {
   }
 });
 
-// POST /api/checkins/sync — bulk sync offline entries
+// POST /api/checkins/sync — offline bulk sync
 router.post('/sync', protect, async (req, res) => {
   try {
-    const { entries } = req.body; // array of offline check-in/out pairs
+    const { entries } = req.body;
     const results = [];
 
     for (const entry of entries) {
@@ -263,7 +283,6 @@ router.post('/sync', protect, async (req, res) => {
           ? new Date(entry.checkInTime).toISOString().split('T')[0]
           : new Date().toISOString().split('T')[0];
 
-        // Avoid duplicates via offline tempId check
         const existing = await CheckIn.findOne({
           merchandiser: req.user._id,
           branch: entry.branchId,
@@ -271,27 +290,25 @@ router.post('/sync', protect, async (req, res) => {
           isOfflineEntry: true,
           checkInTime: new Date(entry.checkInTime),
         });
-        if (existing) { results.push({ status: 'duplicate', entry }); continue; }
+        if (existing) { results.push({ status: 'duplicate' }); continue; }
 
         const session = await CheckIn.create({
-          merchandiser: req.user._id,
-          branch: entry.branchId,
+          merchandiser:    req.user._id,
+          branch:          entry.branchId,
           date,
-          checkInTime: new Date(entry.checkInTime),
+          checkInTime:     new Date(entry.checkInTime),
           checkInLocation: entry.checkInLocation || {},
-          checkInDistanceMeters: null,
-          checkInStatus: 'OFFLINE',
-          checkOutTime: entry.checkOutTime ? new Date(entry.checkOutTime) : null,
+          checkInStatus:   'OFFLINE',
+          checkOutTime:    entry.checkOutTime ? new Date(entry.checkOutTime) : null,
           checkOutLocation: entry.checkOutLocation || {},
-          checkOutStatus: entry.checkOutTime ? 'OFFLINE' : null,
+          checkOutStatus:  entry.checkOutTime ? 'OFFLINE' : null,
           durationMinutes: entry.checkOutTime
             ? Math.round((new Date(entry.checkOutTime) - new Date(entry.checkInTime)) / 60000)
             : null,
-          sessionStatus: entry.checkOutTime ? 'COMPLETE' : 'INCOMPLETE',
-          isOfflineEntry: true,
-          deviceInfo: entry.deviceInfo || '',
+          sessionStatus:   entry.checkOutTime ? 'COMPLETE' : 'INCOMPLETE',
+          isOfflineEntry:  true,
+          deviceInfo:      entry.deviceInfo || '',
         });
-
         results.push({ status: 'synced', id: session._id });
       } catch (e) {
         results.push({ status: 'error', error: e.message });
@@ -304,8 +321,8 @@ router.post('/sync', protect, async (req, res) => {
   }
 });
 
-// PATCH /api/checkins/mark-incomplete — cron-style: mark all ACTIVE sessions from past days as INCOMPLETE
-router.patch('/mark-incomplete', protect, authorize('super_admin', 'admin'), async (req, res) => {
+// PATCH /api/checkins/mark-incomplete
+router.patch('/mark-incomplete', protect, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     const result = await CheckIn.updateMany(

@@ -10,41 +10,50 @@ import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
-// Groups keep the sidebar organized as modules grow
+// ── Role sets ─────────────────────────────────────────────────────────────────
+const PACKAGING_ROLES  = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'viewer'];
+const MERCH_ROLES      = ['super_admin', 'admin', 'team_lead', 'merchandising_team_lead'];
+const MERCH_ALL        = [...MERCH_ROLES, 'merchandiser'];
+const ADMIN_ROLES      = ['super_admin', 'admin'];
+const ALL_ROLES        = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'merchandising_team_lead', 'viewer'];
+
 const NAV_SECTIONS = [
   {
     label: 'Packaging',
     items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',        roles: ['super_admin', 'admin', 'team_lead', 'viewer'] },
-      { to: '/lpos',      icon: FileText,        label: 'LPO Workflow',     roles: ['super_admin', 'admin', 'team_lead', 'viewer'] },
-      { to: '/invoices',  icon: Receipt,         label: 'Invoice Workflow', roles: ['super_admin', 'admin', 'team_lead', 'viewer'] },
-      { to: '/reports',   icon: BarChart3,       label: 'Reports',          roles: ['super_admin', 'admin'] },
+      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',        roles: PACKAGING_ROLES },
+      { to: '/lpos',      icon: FileText,        label: 'LPO Workflow',     roles: PACKAGING_ROLES },
+      { to: '/invoices',  icon: Receipt,         label: 'Invoice Workflow', roles: PACKAGING_ROLES },
+      { to: '/reports',   icon: BarChart3,       label: 'Reports',          roles: ADMIN_ROLES     },
     ],
   },
   {
     label: 'Merchandising',
     items: [
-      { to: '/checkin',     icon: MapPin,         label: 'Check-In',    roles: ['super_admin', 'admin', 'team_lead', 'merchandiser'] },
-      { to: '/assignments', icon: CalendarCheck,  label: 'Assignments', roles: ['super_admin', 'admin', 'team_lead'] },
-      { to: '/attendance',  icon: ClipboardList,  label: 'Attendance',  roles: ['super_admin', 'admin', 'team_lead'] },
+      { to: '/merch-dashboard', icon: LayoutDashboard, label: 'My Dashboard',  roles: ['merchandiser'] },
+      { to: '/checkin',         icon: MapPin,          label: 'Check-In',      roles: MERCH_ALL        },
+      { to: '/assignments',     icon: CalendarCheck,   label: 'Assignments',   roles: MERCH_ROLES      },
+      { to: '/attendance',      icon: ClipboardList,   label: 'Attendance',    roles: MERCH_ROLES      },
     ],
   },
   {
     label: 'Admin',
     items: [
-      { to: '/users',    icon: Users,     label: 'Users',    roles: ['super_admin', 'admin'] },
-      { to: '/persons',  icon: UserCog,   label: 'Persons',  roles: ['super_admin', 'admin'] },
-      { to: '/branches', icon: Building2, label: 'Branches', roles: ['super_admin', 'admin'] },
+      { to: '/users',    icon: Users,     label: 'Users',    roles: ADMIN_ROLES },
+      { to: '/persons',  icon: UserCog,   label: 'Persons',  roles: ADMIN_ROLES },
+      { to: '/branches', icon: Building2, label: 'Branches', roles: ADMIN_ROLES },
     ],
   },
 ];
 
 const ROLE_LABELS = {
-  super_admin: 'Super Admin',
-  admin:       'Admin',
-  team_lead:   'Team Lead',
-  merchandiser:'Merchandiser',
-  viewer:      'Viewer',
+  super_admin:               'Super Admin',
+  admin:                     'Admin',
+  packaging_team_lead:       'Packaging Lead',
+  merchandising_team_lead:   'Merch. Lead',
+  team_lead:                 'Team Lead',
+  merchandiser:              'Merchandiser',
+  viewer:                    'Viewer',
 };
 
 export default function Sidebar({ pendingBranches = 0 }) {
@@ -121,7 +130,7 @@ export default function Sidebar({ pendingBranches = 0 }) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-foreground truncate">{user?.fullName}</p>
-            <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{ROLE_LABELS[user?.role]}</p>
+            <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{ROLE_LABELS[user?.role] || user?.role}</p>
           </div>
         </div>
         <button onClick={handleLogout}

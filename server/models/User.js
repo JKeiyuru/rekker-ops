@@ -24,7 +24,15 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['super_admin', 'admin', 'team_lead', 'merchandiser', 'viewer'],
+      enum: [
+        'super_admin',
+        'admin',
+        'packaging_team_lead',    // sees LPO + Invoice workflow only
+        'merchandising_team_lead', // sees Merchandising module only
+        'team_lead',              // legacy: sees everything
+        'merchandiser',           // sees own check-in dashboard only
+        'viewer',
+      ],
       default: 'viewer',
     },
     isActive: {

@@ -23,6 +23,8 @@ import { format } from 'date-fns';
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ROLE_CONFIG = {
+  packaging_team_lead:       { label: 'Packaging Lead',  variant: 'default'   },
+  merchandising_team_lead:   { label: 'Merch. Lead',     variant: 'default'   },
   super_admin:  { label: 'Super Admin',  variant: 'default'   },
   admin:        { label: 'Admin',        variant: 'warning'   },
   team_lead:    { label: 'Team Lead',    variant: 'secondary' },
@@ -31,7 +33,7 @@ const ROLE_CONFIG = {
 };
 
 // Roles available in the Staff tab
-const STAFF_ROLES = ['super_admin', 'admin', 'team_lead', 'viewer'];
+const STAFF_ROLES = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'merchandising_team_lead', 'viewer'];
 // Roles available in the Merchandisers tab
 const MERCH_ROLES = ['merchandiser'];
 

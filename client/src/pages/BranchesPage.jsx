@@ -1,38 +1,62 @@
 // client/src/pages/BranchesPage.jsx
+// Admin branch management with Google Maps location picker.
 
 import { useEffect, useState } from 'react';
-import { Plus, Edit2, Trash2, CheckCircle2, AlertCircle, Loader2, Building2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, CheckCircle2, AlertCircle, Loader2, Building2, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog';
+import BranchLocationPicker from '@/components/BranchLocationPicker';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 
 function BranchModal({ open, onClose, branch, onSaved }) {
-  const [name, setName] = useState('');
+  const [name, setName]         = useState('');
   const [isActive, setIsActive] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [location, setLocation] = useState({ latitude: null, longitude: null, allowedRadius: 100 });
+  const [loading, setLoading]   = useState(false);
 
   useEffect(() => {
-    if (branch) { setName(branch.name); setIsActive(branch.isActive); }
-    else { setName(''); setIsActive(true); }
+    if (branch) {
+      setName(branch.name);
+      setIsActive(branch.isActive);
+      setLocation({
+        latitude:      branch.latitude     || null,
+        longitude:     branch.longitude    || null,
+        allowedRadius: branch.allowedRadius || 100,
+      });
+    } else {
+      setName('');
+      setIsActive(true);
+      setLocation({ latitude: null, longitude: null, allowedRadius: 100 });
+    }
   }, [branch, open]);
 
   const handleSave = async () => {
-    if (!name.trim()) return toast.error('Name is required');
+    if (!name.trim()) return toast.error('Name required');
     setLoading(true);
     try {
+      const payload = {
+        name,
+        isActive,
+        isVerified: true,
+        latitude:      location.latitude,
+        longitude:     location.longitude,
+        allowedRadius: location.allowedRadius,
+      };
       if (branch) {
-        const res = await api.put(`/branches/${branch._id}`, { name, isActive, isVerified: true });
+        const res = await api.put(`/branches/${branch._id}`, payload);
         onSaved(res.data, false);
         toast.success('Branch updated');
       } else {
-        const res = await api.post('/branches', { name });
+        const res = await api.post('/branches', payload);
         onSaved(res.data, true);
         toast.success('Branch added');
       }
@@ -46,21 +70,31 @@ function BranchModal({ open, onClose, branch, onSaved }) {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{branch ? 'Edit Branch' : 'Add Branch'}</DialogTitle>
+          <DialogDescription>
+            Set a name and pick a GPS location so merchandisers can be validated on check-in.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 mt-2">
           <div className="space-y-1.5">
             <Label>Branch Name</Label>
-            <Input placeholder="e.g. Westlands Branch" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input placeholder="e.g. Sarit Centre" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
+
+          <div className="space-y-1.5">
+            <Label>Location <span className="text-muted-foreground font-normal normal-case">(for GPS validation)</span></Label>
+            <BranchLocationPicker value={location} onChange={setLocation} />
+          </div>
+
           {branch && (
             <div className="flex items-center justify-between rounded-lg border border-border bg-accent/30 px-4 py-3">
               <Label>Active</Label>
               <Switch checked={isActive} onCheckedChange={setIsActive} />
             </div>
           )}
+
           <div className="flex gap-2 pt-2">
             <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
             <Button className="flex-1" onClick={handleSave} disabled={loading}>
@@ -75,8 +109,8 @@ function BranchModal({ open, onClose, branch, onSaved }) {
 }
 
 export default function BranchesPage() {
-  const [branches, setBranches] = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [branches, setBranches]   = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editBranch, setEditBranch] = useState(null);
 
@@ -92,7 +126,9 @@ export default function BranchesPage() {
 
   const handleVerify = async (b) => {
     try {
-      const res = await api.put(`/branches/${b._id}`, { isVerified: true, notificationRead: true, name: b.name, isActive: b.isActive });
+      const res = await api.put(`/branches/${b._id}`, {
+        isVerified: true, notificationRead: true, name: b.name, isActive: b.isActive,
+      });
       setBranches((p) => p.map((x) => (x._id === res.data._id ? res.data : x)));
       toast.success(`${b.name} verified!`);
     } catch { toast.error('Failed'); }
@@ -100,7 +136,9 @@ export default function BranchesPage() {
 
   const handleMarkRead = async (b) => {
     try {
-      const res = await api.put(`/branches/${b._id}`, { notificationRead: true, name: b.name, isActive: b.isActive, isVerified: b.isVerified });
+      const res = await api.put(`/branches/${b._id}`, {
+        notificationRead: true, name: b.name, isActive: b.isActive, isVerified: b.isVerified,
+      });
       setBranches((p) => p.map((x) => (x._id === res.data._id ? res.data : x)));
     } catch {}
   };
@@ -114,8 +152,8 @@ export default function BranchesPage() {
     } catch { toast.error('Failed'); }
   };
 
-  const openEdit = (b) => { setEditBranch(b); setModalOpen(true); };
-  const openCreate = () => { setEditBranch(null); setModalOpen(true); };
+  const openEdit   = (b) => { setEditBranch(b);   setModalOpen(true); };
+  const openCreate = ()  => { setEditBranch(null); setModalOpen(true); };
 
   const verified   = branches.filter((b) => b.isVerified);
   const unverified = branches.filter((b) => !b.isVerified);
@@ -127,18 +165,15 @@ export default function BranchesPage() {
           <h1 className="page-title">Branches</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage delivery branches and verify new suggestions</p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="w-4 h-4" />
-          Add Branch
-        </Button>
+        <Button onClick={openCreate}><Plus className="w-4 h-4" />Add Branch</Button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Total',      value: branches.length,  color: 'text-foreground' },
-          { label: 'Verified',   value: verified.length,  color: 'text-emerald-400' },
-          { label: 'Pending',    value: unverified.length, color: unverified.length > 0 ? 'text-amber-400' : 'text-muted-foreground' },
+          { label: 'Total',   value: branches.length,  color: 'text-foreground'  },
+          { label: 'Verified', value: verified.length, color: 'text-emerald-400' },
+          { label: 'Pending', value: unverified.length, color: unverified.length > 0 ? 'text-amber-400' : 'text-muted-foreground' },
         ].map(({ label, value, color }) => (
           <div key={label} className="rounded-xl border border-rekker-border bg-rekker-surface p-4">
             <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">{label}</p>
@@ -147,7 +182,6 @@ export default function BranchesPage() {
         ))}
       </div>
 
-      {/* Pending notification banner */}
       {unverified.filter((b) => !b.notificationRead).length > 0 && (
         <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
           <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
@@ -155,7 +189,7 @@ export default function BranchesPage() {
             <p className="text-sm font-medium text-amber-300">
               {unverified.filter((b) => !b.notificationRead).length} new branch{unverified.filter((b) => !b.notificationRead).length !== 1 ? 'es' : ''} suggested by team leads
             </p>
-            <p className="text-xs text-amber-400/70 mt-0.5">Review and verify them below so they appear in the official dropdown.</p>
+            <p className="text-xs text-amber-400/70 mt-0.5">Review and verify them so they appear in dropdowns.</p>
           </div>
         </div>
       )}
@@ -167,9 +201,7 @@ export default function BranchesPage() {
       ) : (
         <Tabs defaultValue={unverified.length ? 'pending' : 'verified'}>
           <TabsList>
-            <TabsTrigger value="verified">
-              Verified ({verified.length})
-            </TabsTrigger>
+            <TabsTrigger value="verified">Verified ({verified.length})</TabsTrigger>
             <TabsTrigger value="pending" className="relative">
               Pending ({unverified.length})
               {unverified.filter((b) => !b.notificationRead).length > 0 && (
@@ -178,10 +210,9 @@ export default function BranchesPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Verified branches */}
           <TabsContent value="verified">
             {verified.length === 0 ? (
-              <div className="text-center py-16 border border-dashed border-border rounded-xl">
+              <div className="text-center py-16 border border-dashed border-border rounded-xl mt-3">
                 <Building2 className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">No verified branches yet.</p>
                 <Button className="mt-4" onClick={openCreate}><Plus className="w-4 h-4" />Add First Branch</Button>
@@ -191,7 +222,7 @@ export default function BranchesPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-rekker-border bg-rekker-surface">
-                      {['Branch Name', 'Status', 'Added', 'Actions'].map((h) => (
+                      {['Branch Name', 'GPS Location', 'Radius', 'Status', 'Added', 'Actions'].map((h) => (
                         <th key={h} className="text-left px-5 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{h}</th>
                       ))}
                     </tr>
@@ -207,6 +238,17 @@ export default function BranchesPage() {
                             <span className="font-medium text-foreground">{b.name}</span>
                           </div>
                         </td>
+                        <td className="px-5 py-3">
+                          {b.latitude != null ? (
+                            <span className="flex items-center gap-1 text-xs font-mono text-emerald-400">
+                              <MapPin className="w-3 h-3" />
+                              {b.latitude.toFixed(4)}, {b.longitude.toFixed(4)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground font-mono">Not set</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-xs font-mono text-foreground">{b.allowedRadius || 100}m</td>
                         <td className="px-5 py-3">
                           <Badge variant={b.isActive ? 'success' : 'pending'}>{b.isActive ? 'Active' : 'Inactive'}</Badge>
                         </td>
@@ -227,7 +269,6 @@ export default function BranchesPage() {
             )}
           </TabsContent>
 
-          {/* Pending (unverified) */}
           <TabsContent value="pending">
             {unverified.length === 0 ? (
               <div className="text-center py-16 border border-dashed border-border rounded-xl mt-3">
@@ -237,11 +278,9 @@ export default function BranchesPage() {
             ) : (
               <div className="space-y-2 mt-3">
                 {unverified.map((b) => (
-                  <div
-                    key={b._id}
+                  <div key={b._id}
                     className={`flex items-center gap-4 p-4 rounded-xl border transition-colors ${!b.notificationRead ? 'border-amber-500/30 bg-amber-500/5' : 'border-border bg-rekker-surface/30'}`}
-                    onMouseEnter={() => { if (!b.notificationRead) handleMarkRead(b); }}
-                  >
+                    onMouseEnter={() => { if (!b.notificationRead) handleMarkRead(b); }}>
                     <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
                       <AlertCircle className="w-4 h-4 text-amber-400" />
                     </div>
@@ -251,13 +290,10 @@ export default function BranchesPage() {
                         Suggested by {b.addedBy?.fullName || 'team lead'} · {format(new Date(b.createdAt), 'dd/MM/yy HH:mm')}
                       </p>
                     </div>
-                    {!b.notificationRead && (
-                      <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-                    )}
+                    {!b.notificationRead && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />}
                     <div className="flex gap-2">
                       <Button size="sm" variant="success" onClick={() => handleVerify(b)}>
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Verify
+                        <CheckCircle2 className="w-3.5 h-3.5" />Verify
                       </Button>
                       <Button size="sm" variant="ghost" className="hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(b)}>
                         <Trash2 className="w-3.5 h-3.5" />

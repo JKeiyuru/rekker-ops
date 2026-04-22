@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { format } from 'date-fns';
-import { CheckCheck, ClipboardCheck, Send, Loader2, Trash2, Layers, AlertCircle } from 'lucide-react';
+import { CheckCheck, ClipboardCheck, Send, Loader2, Trash2, Layers, AlertCircle, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import StatusBadge from './StatusBadge';
 import ErrorLogger from './ErrorLogger';
@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
+import EditLPOModal from './EditLPOModal';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,12 @@ function TimeCell({ timestamp }) {
     <div className="flex flex-col">
       <span className="font-mono text-xs text-foreground">{format(new Date(timestamp), 'HH:mm')}</span>
       <span className="font-mono text-[10px] text-muted-foreground">{format(new Date(timestamp), 'dd/MM')}</span>
+    <EditLPOModal
+      open={!!editLpo}
+      onClose={() => setEditLpo(null)}
+      lpo={editLpo}
+      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
+    />
     </div>
   );
 }
@@ -50,6 +57,12 @@ function BranchCell({ lpo }) {
           </Tooltip>
         </TooltipProvider>
       )}
+    <EditLPOModal
+      open={!!editLpo}
+      onClose={() => setEditLpo(null)}
+      lpo={editLpo}
+      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
+    />
     </div>
   );
 }
@@ -107,8 +120,10 @@ const HEADERS = [
 export default function LPOTable({ lpos, onUpdated, onDeleted }) {
   const { user } = useAuthStore();
   const [loadingId, setLoadingId] = useState(null);
+  const [editLpo, setEditLpo] = useState(null);
 
-  const canEdit   = ['super_admin', 'admin', 'team_lead'].includes(user?.role);
+  const canEdit   = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead'].includes(user?.role);
+  const canAdmin  = ['super_admin', 'admin'].includes(user?.role);
   const canDelete = user?.role === 'super_admin';
 
   const updateStatus = async (lpo, action) => {
@@ -154,7 +169,13 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
     return (
       <div className="text-center py-10 text-muted-foreground text-sm border border-dashed border-border rounded-lg">
         No LPOs for this day yet.
-      </div>
+      <EditLPOModal
+      open={!!editLpo}
+      onClose={() => setEditLpo(null)}
+      lpo={editLpo}
+      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
+    />
+    </div>
     );
   }
 
@@ -217,7 +238,13 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
                       <span className="font-mono text-xs font-semibold text-primary tracking-wider">
                         {lpo.lpoNumber}
                       </span>
-                    </div>
+                    <EditLPOModal
+      open={!!editLpo}
+      onClose={() => setEditLpo(null)}
+      lpo={editLpo}
+      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
+    />
+    </div>
                   </td>
 
                   {/* ── Branch ── */}
@@ -290,11 +317,21 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
                         <ActionBtn icon={CheckCheck} label="" title="Mark checked" variant="success"
                           onClick={() => updateStatus(lpo, 'check')} loading={isLoading('check')} />
                       )}
+                      {canAdmin && (
+                        <ActionBtn icon={Pencil} label="" title="Edit LPO" variant="ghost"
+                          onClick={() => setEditLpo(lpo)} loading={false} />
+                      )}
                       {canDelete && (
                         <ActionBtn icon={Trash2} label="" title="Delete LPO" variant="ghost"
                           onClick={() => handleDelete(lpo)} loading={false} />
                       )}
-                    </div>
+                    <EditLPOModal
+      open={!!editLpo}
+      onClose={() => setEditLpo(null)}
+      lpo={editLpo}
+      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
+    />
+    </div>
                   </td>
                 </tr>
               );
@@ -302,6 +339,12 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
           })}
         </tbody>
       </table>
+    <EditLPOModal
+      open={!!editLpo}
+      onClose={() => setEditLpo(null)}
+      lpo={editLpo}
+      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
+    />
     </div>
   );
 }

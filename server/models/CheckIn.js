@@ -15,8 +15,19 @@ const sessionSchema = new mongoose.Schema(
       required: true,
     },
     date: {
-      type: String, // YYYY-MM-DD — for quick daily grouping
+      type: String, // YYYY-MM-DD
       required: true,
+    },
+
+    // Expected check-in time copied from the assignment (for late calculation)
+    expectedCheckIn: {
+      type: String, // e.g. "08:00"
+      default: null,
+    },
+    // Late difference in minutes (positive = late, negative = early)
+    lateByMinutes: {
+      type: Number,
+      default: null,
     },
 
     // Check-in data
@@ -38,54 +49,30 @@ const sessionSchema = new mongoose.Schema(
       default: 'VALID',
     },
 
-    // Check-out data (filled later)
-    checkOutTime: {
-      type: Date,
-      default: null,
-    },
+    // Check-out data
+    checkOutTime:  { type: Date, default: null },
     checkOutLocation: {
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },
     },
-    checkOutDistanceMeters: {
-      type: Number,
-      default: null,
-    },
+    checkOutDistanceMeters: { type: Number, default: null },
     checkOutStatus: {
       type: String,
       enum: ['VALID', 'MISMATCH', 'LOCATION_DISABLED', 'OFFLINE', null],
       default: null,
     },
 
-    // Overall session status
     sessionStatus: {
       type: String,
       enum: ['ACTIVE', 'COMPLETE', 'INCOMPLETE', 'FLAGGED'],
       default: 'ACTIVE',
     },
 
-    // Duration in minutes (computed on check-out)
-    durationMinutes: {
-      type: Number,
-      default: null,
-    },
+    durationMinutes: { type: Number, default: null },
+    isOfflineEntry:  { type: Boolean, default: false },
 
-    // Was this entry created while offline and synced later?
-    isOfflineEntry: {
-      type: Boolean,
-      default: false,
-    },
-
-    // Basic device fingerprint for anti-cheating
-    deviceInfo: {
-      type: String,
-      default: '',
-    },
-
-    notes: {
-      type: String,
-      default: '',
-    },
+    deviceInfo: { type: String, default: '' },
+    notes:      { type: String, default: '' },
   },
   { timestamps: true }
 );

@@ -1,23 +1,23 @@
 // client/src/pages/AttendancePage.jsx
-// Admin/team-lead view showing daily attendance summaries, per-merchandiser
-// check-in history, location statuses, and flagged entries.
 
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import {
   Users, CheckCircle2, XCircle, AlertTriangle, Clock,
   CalendarDays, Loader2, Navigation, WifiOff, RefreshCw,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { exportAttendancePDF, exportMerchandiserPDF } from '@/lib/pdf';
 import api from '@/lib/api';
 
 const TODAY = new Date().toISOString().split('T')[0];
 
-// ── Status helpers ────────────────────────────────────────────────────────────
+// ── Status configs ────────────────────────────────────────────────────────────
 const SESSION_STATUS_UI = {
   ACTIVE:     { label: 'Active',     variant: 'default'     },
   COMPLETE:   { label: 'Complete',   variant: 'success'     },
@@ -31,6 +31,35 @@ const CHECKIN_STATUS_UI = {
   LOCATION_DISABLED: { label: 'GPS Off',        color: 'text-amber-400'   },
   OFFLINE:           { label: 'Offline',        color: 'text-blue-400'    },
 };
+
+// ── Late indicator ────────────────────────────────────────────────────────────
+// Grace period: 0–10 min = green/on-time, 11–30 = amber/late,
+// >30 = red/very late, negative = early (green)
+function LateCell({ lateByMinutes, expectedCheckIn }) {
+  if (!expectedCheckIn) return <span className="text-muted-foreground/40 text-xs">—</span>;
+  if (lateByMinutes == null) return <span className="text-muted-foreground/40 text-xs">—</span>;
+
+  let label, colorClass, bg;
+  if (lateByMinutes < 0) {
+    label = `${Math.abs(lateByMinutes)}m early`;
+    colorClass = 'text-emerald-400'; bg = 'bg-emerald-500/10 border-emerald-500/20';
+  } else if (lateByMinutes <= 10) {
+    label = lateByMinutes === 0 ? 'On time' : `On time (+${lateByMinutes}m)`;
+    colorClass = 'text-emerald-400'; bg = 'bg-emerald-500/10 border-emerald-500/20';
+  } else if (lateByMinutes <= 30) {
+    label = `Late +${lateByMinutes}m`;
+    colorClass = 'text-amber-400'; bg = 'bg-amber-500/10 border-amber-500/20';
+  } else {
+    label = `Very late +${lateByMinutes}m`;
+    colorClass = 'text-destructive'; bg = 'bg-destructive/10 border-destructive/20';
+  }
+
+  return (
+    <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold border', colorClass, bg)}>
+      {label}
+    </span>
+  );
+}
 
 function StatCard({ icon: Icon, label, value, color = 'text-primary', bg = 'bg-primary/10' }) {
   return (
@@ -48,9 +77,9 @@ function StatCard({ icon: Icon, label, value, color = 'text-primary', bg = 'bg-p
 
 // ── Daily tab ─────────────────────────────────────────────────────────────────
 function DailyTab() {
-  const [date, setDate]         = useState(TODAY);
-  const [summary, setSummary]   = useState(null);
-  const [loading, setLoading]   = useState(true);
+  const [date, setDate]       = useState(TODAY);
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const fetch = (d) => {
     setLoading(true);
@@ -61,77 +90,115 @@ function DailyTab() {
 
   useEffect(() => { fetch(date); }, [date]);
 
+  const handleExportPDF = () => {
+    if (!summary) return;
+    exportAttendancePDF({
+      date,
+      sessions:    summary.sessions || [],
+      assignments: summary.assignments || [],
+      summary,
+    });
+  };
+
+  const handleExportCSV = () => {
+    if (!summary?.sessions?.length) return;
+    const headers = ['Merchandiser', 'Branch', 'Expected', 'Check-In', 'Late (min)', 'Check-Out', 'Duration', 'Distance (m)', 'Status'];
+    const rows = summary.sessions.map((s) => [
+      s.merchandiser?.fullName || '',
+      s.branch?.name || '',
+      s.expectedCheckIn || '',
+      s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '',
+      s.lateByMinutes ?? '',
+      s.checkOutTime ? format(new Date(s.checkOutTime), 'HH:mm') : '',
+      s.durationMinutes ?? '',
+      s.checkInDistanceMeters ?? '',
+      s.sessionStatus,
+    ]);
+    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `attendance-${date}.csv`;
+    a.click();
+  };
+
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <CalendarDays className="w-4 h-4 text-muted-foreground" />
-        <Input type="date" className="h-8 w-44 text-sm" value={date} onChange={(e) => { setDate(e.target.value); }} />
+        <Input type="date" className="h-8 w-44 text-sm" value={date} onChange={(e) => setDate(e.target.value)} />
         <Button variant="ghost" size="sm" onClick={() => setDate(TODAY)}>Today</Button>
         <Button variant="outline" size="sm" onClick={() => fetch(date)} disabled={loading}>
           <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
         </Button>
+        <div className="ml-auto flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={!summary?.sessions?.length}>
+            <Download className="w-3.5 h-3.5" />CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={!summary}>
+            <Download className="w-3.5 h-3.5" />PDF
+          </Button>
+        </div>
       </div>
 
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
       ) : (
         <>
-          {/* Stats grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={Users}        label="Assigned"     value={summary?.totalAssigned}     />
-            <StatCard icon={CheckCircle2} label="Checked In"   value={summary?.totalCheckedIn}    color="text-emerald-400" bg="bg-emerald-500/10" />
-            <StatCard icon={XCircle}      label="Absent"       value={summary?.totalAbsent}       color="text-destructive" bg="bg-destructive/10" />
-            <StatCard icon={AlertTriangle} label="Flagged"     value={summary?.flaggedSessions}   color="text-amber-400"  bg="bg-amber-500/10"  />
+            <StatCard icon={Users}         label="Assigned"     value={summary?.totalAssigned}      />
+            <StatCard icon={CheckCircle2}  label="Checked In"   value={summary?.totalCheckedIn}     color="text-emerald-400" bg="bg-emerald-500/10" />
+            <StatCard icon={XCircle}       label="Absent"       value={summary?.totalAbsent}        color="text-destructive"  bg="bg-destructive/10" />
+            <StatCard icon={AlertTriangle} label="Flagged"      value={summary?.flaggedSessions}    color="text-amber-400"  bg="bg-amber-500/10"  />
           </div>
 
-          {/* Sessions table */}
           {summary?.sessions?.length > 0 ? (
-            <div className="rounded-xl border border-rekker-border overflow-hidden">
+            <div className="overflow-x-auto rounded-xl border border-rekker-border">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-rekker-border bg-rekker-surface">
-                    {['Merchandiser', 'Branch', 'Check-In', 'Check-Out', 'Duration', 'Distance', 'Status', 'Flags'].map((h) => (
+                    {['Merchandiser', 'Branch', 'Expected', 'Check-In', 'Timeliness', 'Check-Out', 'Duration', 'Distance', 'Status', 'Flags'].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.sessions.map((s, i) => {
-                    const ciUI = CHECKIN_STATUS_UI[s.checkInStatus] || {};
-                    return (
-                      <tr key={s._id} className={`border-b border-rekker-border/50 hover:bg-accent/20 transition-colors ${i % 2 !== 0 ? 'bg-rekker-surface/20' : ''}`}>
-                        <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{s.merchandiser?.fullName}</td>
-                        <td className="px-4 py-3 text-foreground">{s.branch?.name}</td>
-                        <td className="px-4 py-3 font-mono text-xs">{s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '—'}</td>
-                        <td className="px-4 py-3 font-mono text-xs">{s.checkOutTime ? format(new Date(s.checkOutTime), 'HH:mm') : '—'}</td>
-                        <td className="px-4 py-3 font-mono text-xs">{s.durationMinutes != null ? `${s.durationMinutes}m` : '—'}</td>
-                        <td className="px-4 py-3">
-                          {s.checkInDistanceMeters != null ? (
-                            <span className={cn('font-mono text-xs flex items-center gap-1', s.checkInDistanceMeters > (s.branch?.allowedRadius || 100) ? 'text-destructive' : 'text-emerald-400')}>
-                              <Navigation className="w-3 h-3" />{s.checkInDistanceMeters}m
+                  {summary.sessions.map((s, i) => (
+                    <tr key={s._id} className={`border-b border-rekker-border/50 hover:bg-accent/20 transition-colors ${i % 2 !== 0 ? 'bg-rekker-surface/20' : ''}`}>
+                      <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{s.merchandiser?.fullName}</td>
+                      <td className="px-4 py-3 text-foreground">{s.branch?.name}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.expectedCheckIn || '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '—'}</td>
+                      <td className="px-4 py-3"><LateCell lateByMinutes={s.lateByMinutes} expectedCheckIn={s.expectedCheckIn} /></td>
+                      <td className="px-4 py-3 font-mono text-xs">{s.checkOutTime ? format(new Date(s.checkOutTime), 'HH:mm') : '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{s.durationMinutes != null ? `${s.durationMinutes}m` : '—'}</td>
+                      <td className="px-4 py-3">
+                        {s.checkInDistanceMeters != null ? (
+                          <span className={cn('font-mono text-xs flex items-center gap-1', s.checkInDistanceMeters > (s.branch?.allowedRadius || 100) ? 'text-destructive' : 'text-emerald-400')}>
+                            <Navigation className="w-3 h-3" />{s.checkInDistanceMeters}m
+                          </span>
+                        ) : <span className="text-muted-foreground text-xs">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={SESSION_STATUS_UI[s.sessionStatus]?.variant || 'pending'}>
+                          {SESSION_STATUS_UI[s.sessionStatus]?.label || s.sessionStatus}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1 flex-wrap">
+                          {s.checkInStatus !== 'VALID' && (
+                            <span className={cn('text-[10px] font-mono', CHECKIN_STATUS_UI[s.checkInStatus]?.color)}>
+                              {CHECKIN_STATUS_UI[s.checkInStatus]?.label}
                             </span>
-                          ) : <span className="text-muted-foreground text-xs">—</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant={SESSION_STATUS_UI[s.sessionStatus]?.variant || 'pending'}>
-                            {SESSION_STATUS_UI[s.sessionStatus]?.label || s.sessionStatus}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-1 flex-wrap">
-                            {s.checkInStatus !== 'VALID' && (
-                              <span className={cn('text-[10px] font-mono', ciUI.color)}>{ciUI.label}</span>
-                            )}
-                            {s.isOfflineEntry && (
-                              <span className="flex items-center gap-0.5 text-[10px] font-mono text-blue-400">
-                                <WifiOff className="w-2.5 h-2.5" />offline
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          )}
+                          {s.isOfflineEntry && (
+                            <span className="flex items-center gap-0.5 text-[10px] font-mono text-blue-400">
+                              <WifiOff className="w-2.5 h-2.5" />offline
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -142,8 +209,7 @@ function DailyTab() {
             </div>
           )}
 
-          {/* Absent merchandisers */}
-          {summary?.assignments && summary.totalAbsent > 0 && (
+          {summary?.totalAbsent > 0 && summary?.assignments && (
             <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4">
               <p className="text-xs font-mono text-destructive uppercase tracking-wider mb-2">Absent / Not Checked In</p>
               <div className="space-y-1.5">
@@ -168,23 +234,54 @@ function DailyTab() {
 function MerchandiserTab() {
   const [merchandisers, setMerchandisers] = useState([]);
   const [selectedId, setSelectedId]       = useState('');
+  const [selectedName, setSelectedName]   = useState('');
   const [report, setReport]               = useState(null);
   const [loading, setLoading]             = useState(false);
   const [dateRange, setDateRange]         = useState({ start: '', end: '' });
 
   useEffect(() => {
-    api.get('/users').then((r) => setMerchandisers(r.data.filter((u) => u.role === 'merchandiser')));
+    api.get('/users').then((r) => {
+      const all = Array.isArray(r.data) ? r.data : [];
+      setMerchandisers(all.filter((u) => u.role === 'merchandiser'));
+    });
   }, []);
 
   const fetchReport = () => {
     if (!selectedId) return;
     setLoading(true);
-    api.get(`/checkins/reports/merchandiser/${selectedId}`, { params: { start: dateRange.start, end: dateRange.end } })
+    api.get(`/checkins/reports/merchandiser/${selectedId}`, {
+      params: { start: dateRange.start, end: dateRange.end },
+    })
       .then((r) => setReport(r.data))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { if (selectedId) fetchReport(); }, [selectedId]);
+
+  const handleExportPDF = () => {
+    if (!report) return;
+    exportMerchandiserPDF({ name: selectedName, report, dateRange });
+  };
+
+  const handleExportCSV = () => {
+    if (!report?.sessions?.length) return;
+    const headers = ['Date', 'Branch', 'Expected', 'Check-In', 'Late (min)', 'Check-Out', 'Duration', 'Status'];
+    const rows = report.sessions.map((s) => [
+      s.date,
+      s.branch?.name || '',
+      s.expectedCheckIn || '',
+      s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '',
+      s.lateByMinutes ?? '',
+      s.checkOutTime ? format(new Date(s.checkOutTime), 'HH:mm') : '',
+      s.durationMinutes ?? '',
+      s.sessionStatus,
+    ]);
+    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `merchandiser-${selectedName.replace(/\s+/g, '-')}.csv`;
+    a.click();
+  };
 
   return (
     <div className="space-y-5">
@@ -194,7 +291,10 @@ function MerchandiserTab() {
           <select
             className="flex h-8 w-full rounded-md border border-input bg-input px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             value={selectedId}
-            onChange={(e) => setSelectedId(e.target.value)}
+            onChange={(e) => {
+              setSelectedId(e.target.value);
+              setSelectedName(merchandisers.find((m) => m._id === e.target.value)?.fullName || '');
+            }}
           >
             <option value="">Select merchandiser…</option>
             {merchandisers.map((m) => <option key={m._id} value={m._id}>{m.fullName}</option>)}
@@ -211,6 +311,12 @@ function MerchandiserTab() {
         <Button size="sm" onClick={fetchReport} disabled={!selectedId || loading}>
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Apply'}
         </Button>
+        {report && (
+          <>
+            <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="w-3.5 h-3.5" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={handleExportPDF}><Download className="w-3.5 h-3.5" />PDF</Button>
+          </>
+        )}
       </div>
 
       {loading && <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>}
@@ -218,18 +324,18 @@ function MerchandiserTab() {
       {report && !loading && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={CheckCircle2}  label="Total Sessions"    value={report.totalSessions}       />
-            <StatCard icon={Clock}         label="Hours Worked"       value={`${report.totalHoursWorked}h`} color="text-blue-400"    bg="bg-blue-500/10"    />
-            <StatCard icon={AlertTriangle} label="Mismatches"         value={report.locationMismatches}  color="text-amber-400"  bg="bg-amber-500/10"  />
-            <StatCard icon={XCircle}       label="Days Absent"        value={report.daysAbsent}          color="text-destructive" bg="bg-destructive/10" />
+            <StatCard icon={CheckCircle2}  label="Total Sessions"  value={report.totalSessions}     />
+            <StatCard icon={Clock}         label="Hours Worked"    value={`${report.totalHoursWorked}h`} color="text-blue-400" bg="bg-blue-500/10" />
+            <StatCard icon={AlertTriangle} label="Late Arrivals"   value={report.lateArrivals}      color="text-amber-400" bg="bg-amber-500/10" />
+            <StatCard icon={XCircle}       label="Days Absent"     value={report.daysAbsent}        color="text-destructive" bg="bg-destructive/10" />
           </div>
 
           {report.sessions.length > 0 && (
-            <div className="rounded-xl border border-rekker-border overflow-hidden">
+            <div className="overflow-x-auto rounded-xl border border-rekker-border">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-rekker-border bg-rekker-surface">
-                    {['Date', 'Branch', 'Check-In', 'Check-Out', 'Duration', 'Status'].map((h) => (
+                    {['Date', 'Branch', 'Expected', 'Check-In', 'Timeliness', 'Check-Out', 'Duration', 'Status'].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{h}</th>
                     ))}
                   </tr>
@@ -239,7 +345,9 @@ function MerchandiserTab() {
                     <tr key={s._id} className={`border-b border-rekker-border/50 hover:bg-accent/20 transition-colors ${i % 2 !== 0 ? 'bg-rekker-surface/20' : ''}`}>
                       <td className="px-4 py-3 font-mono text-xs text-foreground">{s.date}</td>
                       <td className="px-4 py-3 text-foreground">{s.branch?.name}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.expectedCheckIn || '—'}</td>
                       <td className="px-4 py-3 font-mono text-xs">{s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '—'}</td>
+                      <td className="px-4 py-3"><LateCell lateByMinutes={s.lateByMinutes} expectedCheckIn={s.expectedCheckIn} /></td>
                       <td className="px-4 py-3 font-mono text-xs">{s.checkOutTime ? format(new Date(s.checkOutTime), 'HH:mm') : '—'}</td>
                       <td className="px-4 py-3 font-mono text-xs">{s.durationMinutes != null ? `${s.durationMinutes}m` : '—'}</td>
                       <td className="px-4 py-3">
@@ -259,15 +367,13 @@ function MerchandiserTab() {
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function AttendancePage() {
   return (
     <div className="space-y-6">
       <div>
         <h1 className="page-title">Attendance</h1>
-        <p className="text-sm text-muted-foreground mt-1">Merchandiser check-in records, location verification, and reports</p>
+        <p className="text-sm text-muted-foreground mt-1">Check-in records, location verification, and exportable reports</p>
       </div>
-
       <Tabs defaultValue="daily">
         <TabsList>
           <TabsTrigger value="daily">Daily View</TabsTrigger>
