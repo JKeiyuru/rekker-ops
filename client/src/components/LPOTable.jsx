@@ -23,12 +23,6 @@ function TimeCell({ timestamp }) {
     <div className="flex flex-col">
       <span className="font-mono text-xs text-foreground">{format(new Date(timestamp), 'HH:mm')}</span>
       <span className="font-mono text-[10px] text-muted-foreground">{format(new Date(timestamp), 'dd/MM')}</span>
-    <EditLPOModal
-      open={!!editLpo}
-      onClose={() => setEditLpo(null)}
-      lpo={editLpo}
-      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
-    />
     </div>
   );
 }
@@ -57,12 +51,6 @@ function BranchCell({ lpo }) {
           </Tooltip>
         </TooltipProvider>
       )}
-    <EditLPOModal
-      open={!!editLpo}
-      onClose={() => setEditLpo(null)}
-      lpo={editLpo}
-      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
-    />
     </div>
   );
 }
@@ -167,15 +155,17 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
 
   if (!lpos || lpos.length === 0) {
     return (
-      <div className="text-center py-10 text-muted-foreground text-sm border border-dashed border-border rounded-lg">
-        No LPOs for this day yet.
-      <EditLPOModal
-      open={!!editLpo}
-      onClose={() => setEditLpo(null)}
-      lpo={editLpo}
-      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
-    />
-    </div>
+      <>
+        <div className="text-center py-10 text-muted-foreground text-sm border border-dashed border-border rounded-lg">
+          No LPOs for this day yet.
+        </div>
+        <EditLPOModal
+          open={!!editLpo}
+          onClose={() => setEditLpo(null)}
+          lpo={editLpo}
+          onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
+        />
+      </>
     );
   }
 
@@ -238,13 +228,7 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
                       <span className="font-mono text-xs font-semibold text-primary tracking-wider">
                         {lpo.lpoNumber}
                       </span>
-                    <EditLPOModal
-      open={!!editLpo}
-      onClose={() => setEditLpo(null)}
-      lpo={editLpo}
-      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
-    />
-    </div>
+                    </div>
                   </td>
 
                   {/* ── Branch ── */}
@@ -325,13 +309,7 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
                         <ActionBtn icon={Trash2} label="" title="Delete LPO" variant="ghost"
                           onClick={() => handleDelete(lpo)} loading={false} />
                       )}
-                    <EditLPOModal
-      open={!!editLpo}
-      onClose={() => setEditLpo(null)}
-      lpo={editLpo}
-      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
-    />
-    </div>
+                    </div>
                   </td>
                 </tr>
               );
