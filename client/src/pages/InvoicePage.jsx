@@ -303,7 +303,7 @@ function InvoiceDaySection({ date, invoices: initialInvoices, onUpdated, isAdmin
 export default function InvoicePage() {
   const { user } = useAuthStore();
   const isAdmin  = ['super_admin', 'admin'].includes(user?.role);
-  const canCreate = ['super_admin', 'admin', 'team_lead'].includes(user?.role);
+  const canCreate = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead'].includes(user?.role);
 
   const [groupedInvoices, setGroupedInvoices] = useState([]);
   const [loading, setLoading]                 = useState(true);

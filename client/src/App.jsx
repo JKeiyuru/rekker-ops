@@ -22,12 +22,31 @@ import MerchandiserDashboard   from '@/pages/MerchandiserDashboard';
 
 // ── Role groups ───────────────────────────────────────────────────────────────
 const ADMIN       = ['super_admin', 'admin'];
+// Packaging: legacy team_lead + new packaging_team_lead + admins + viewers
 const PACKAGING   = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'viewer'];
+// Merchandising management: admins + legacy team_lead + new merch lead
 const MERCH_MGMT  = ['super_admin', 'admin', 'team_lead', 'merchandising_team_lead'];
+// Merchandising all: includes the merchandisers themselves
 const MERCH_ALL   = [...MERCH_MGMT, 'merchandiser'];
 
+// ── Smart landing page per role ───────────────────────────────────────────────
+// This is a component so it always reads the latest user from the store
+function RoleRedirect() {
+  const { user, loading } = useAuthStore();
+
+  if (loading) return null; // ProtectedRoute already shows spinner
+
+  if (!user) return <Navigate to="/login" replace />;
+
+  const role = user.role;
+  if (role === 'merchandiser')              return <Navigate to="/merch-dashboard" replace />;
+  if (role === 'merchandising_team_lead')   return <Navigate to="/attendance" replace />;
+  if (role === 'packaging_team_lead')       return <Navigate to="/lpos" replace />;
+  return <Navigate to="/dashboard" replace />;
+}
+
 export default function App() {
-  const { fetchMe, token, user } = useAuthStore();
+  const { fetchMe, token } = useAuthStore();
 
   useEffect(() => {
     if (token) fetchMe();
@@ -40,40 +59,46 @@ export default function App() {
     </ProtectedRoute>
   );
 
-  // Default landing page based on role
-  const defaultRedirect = () => {
-    if (!user) return '/dashboard';
-    if (user.role === 'merchandiser') return '/merch-dashboard';
-    if (user.role === 'merchandising_team_lead') return '/attendance';
-    if (user.role === 'packaging_team_lead') return '/lpos';
-    return '/dashboard';
-  };
-
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
 
-      {/* Smart redirect based on role */}
-      <Route path="/" element={<ProtectedRoute><Navigate to={defaultRedirect()} replace /></ProtectedRoute>} />
+      {/* Smart redirect — reads user AFTER auth resolves */}
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <RoleRedirect />
+          </ProtectedRoute>
+        }
+      />
 
-      {/* Packaging module */}
+      {/* ── Packaging module ── */}
       <Route path="/dashboard" element={<P roles={PACKAGING}><Dashboard /></P>} />
       <Route path="/lpos"      element={<P roles={PACKAGING}><LPOsPage /></P>} />
       <Route path="/invoices"  element={<P roles={PACKAGING}><InvoicePage /></P>} />
       <Route path="/reports"   element={<P roles={ADMIN}><ReportsPage /></P>} />
 
-      {/* Merchandising module */}
+      {/* ── Merchandising module ── */}
       <Route path="/merch-dashboard" element={<P roles={['merchandiser']}><MerchandiserDashboard /></P>} />
       <Route path="/checkin"         element={<P roles={MERCH_ALL}><CheckInPage /></P>} />
       <Route path="/assignments"     element={<P roles={MERCH_MGMT}><AssignmentsPage /></P>} />
       <Route path="/attendance"      element={<P roles={MERCH_MGMT}><AttendancePage /></P>} />
 
-      {/* Admin */}
+      {/* ── Admin ── */}
       <Route path="/users"    element={<P roles={ADMIN}><UsersPage /></P>} />
       <Route path="/persons"  element={<P roles={ADMIN}><PersonsPage /></P>} />
       <Route path="/branches" element={<P roles={ADMIN}><BranchesPage /></P>} />
 
-      <Route path="*" element={<Navigate to={defaultRedirect()} replace />} />
+      {/* Catch-all — send to role-appropriate home */}
+      <Route
+        path="*"
+        element={
+          <ProtectedRoute>
+            <RoleRedirect />
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 }

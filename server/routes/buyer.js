@@ -44,7 +44,7 @@ router.get('/:date', protect, async (req, res) => {
 router.post(
   '/dispatch',
   protect,
-  authorize('super_admin', 'admin', 'team_lead'),
+  authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'),
   async (req, res) => {
     try {
       const { date } = req.body;
@@ -74,7 +74,7 @@ router.post(
 router.post(
   '/return',
   protect,
-  authorize('super_admin', 'admin', 'team_lead'),
+  authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'),
   async (req, res) => {
     try {
       const { date } = req.body;

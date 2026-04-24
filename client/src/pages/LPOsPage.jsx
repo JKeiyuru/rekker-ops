@@ -24,7 +24,7 @@ export default function LPOsPage() {
   const [todayBuyer, setTodayBuyer]       = useState(null);
   const [buyerLoading, setBuyerLoading]   = useState(true);
 
-  const canCreate = ['super_admin', 'admin', 'team_lead'].includes(user?.role);
+  const canCreate = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead'].includes(user?.role);
   const canEdit   = canCreate;
 
   // Fetch today's buyer status independently (so dispatch works even with no LPOs)

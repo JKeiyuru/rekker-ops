@@ -3,9 +3,18 @@
 import { Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 
+// Role → their correct home page (used for unauthorized redirects)
+function homeFor(role) {
+  if (role === 'merchandiser')            return '/merch-dashboard';
+  if (role === 'merchandising_team_lead') return '/attendance';
+  if (role === 'packaging_team_lead')     return '/lpos';
+  return '/dashboard';
+}
+
 export default function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuthStore();
 
+  // Still fetching auth state — show a neutral spinner, never redirect
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -17,10 +26,13 @@ export default function ProtectedRoute({ children, roles }) {
     );
   }
 
+  // Not authenticated at all
   if (!user) return <Navigate to="/login" replace />;
 
+  // Role restriction: send them to their own home, not /dashboard
+  // (avoids blank screen when e.g. merchandiser hits /dashboard)
   if (roles && !roles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={homeFor(user.role)} replace />;
   }
 
   return children;

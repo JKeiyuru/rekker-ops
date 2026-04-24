@@ -97,7 +97,7 @@ router.get('/:id', protect, async (req, res) => {
 });
 
 // POST /api/invoices — create invoice linked to an LPO
-router.post('/', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+router.post('/', protect, authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'), async (req, res) => {
   try {
     const {
       invoiceNumber, lpoId, amountExVat, amountInclVat,
@@ -190,7 +190,7 @@ router.patch('/:id/status', protect, async (req, res) => {
 });
 
 // PUT /api/invoices/:id — edit invoice (only if still draft)
-router.put('/:id', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+router.put('/:id', protect, authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'), async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id).populate('lpo');
     if (!invoice) return res.status(404).json({ message: 'Invoice not found' });

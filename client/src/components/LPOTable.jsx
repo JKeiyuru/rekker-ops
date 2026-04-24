@@ -1,21 +1,23 @@
 // client/src/components/LPOTable.jsx
-// Displays LPOs grouped by batchId with action buttons.
-// Fixes: added Amount column; fixed batch row alignment (removed phantom empty <td>).
+// Displays LPOs grouped by batchId with action buttons and inline editing.
 
 import { useState } from 'react';
 import { format } from 'date-fns';
-import { CheckCheck, ClipboardCheck, Send, Loader2, Trash2, Layers, AlertCircle, Pencil } from 'lucide-react';
+import {
+  CheckCheck, ClipboardCheck, Send, Loader2, Trash2,
+  Layers, AlertCircle, Pencil,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import StatusBadge from './StatusBadge';
 import ErrorLogger from './ErrorLogger';
+import EditLPOModal from './EditLPOModal';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
-import EditLPOModal from './EditLPOModal';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Small display helpers ─────────────────────────────────────────────────────
 
 function TimeCell({ timestamp }) {
   if (!timestamp) return <span className="text-muted-foreground/40 font-mono text-xs">—</span>;
@@ -60,7 +62,13 @@ function ActionBtn({ onClick, disabled, loading, icon: Icon, label, variant, tit
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button size="sm" variant={variant} onClick={onClick} disabled={disabled || loading} className="h-7 px-2.5">
+          <Button
+            size="sm"
+            variant={variant}
+            onClick={onClick}
+            disabled={disabled || loading}
+            className="h-7 px-2.5"
+          >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Icon className="w-3.5 h-3.5" />}
             <span className="hidden xl:inline ml-1 text-xs">{label}</span>
           </Button>
@@ -71,10 +79,10 @@ function ActionBtn({ onClick, disabled, loading, icon: Icon, label, variant, tit
   );
 }
 
-// ── Group LPOs by batchId, preserving display order ──────────────────────────
+// ── Group LPOs by batchId preserving display order ────────────────────────────
 function groupLpos(lpos) {
   const groups = [];
-  const seen   = {};
+  const seen = {};
   for (const lpo of lpos) {
     if (!lpo.batchId) {
       groups.push({ batchId: null, lpos: [lpo] });
@@ -88,8 +96,6 @@ function groupLpos(lpos) {
   return groups;
 }
 
-// ── Column definitions ────────────────────────────────────────────────────────
-// Keeping this as an array makes it trivial to add/remove columns in one place.
 const HEADERS = [
   'LPO Number',
   'Branch',
@@ -108,10 +114,10 @@ const HEADERS = [
 export default function LPOTable({ lpos, onUpdated, onDeleted }) {
   const { user } = useAuthStore();
   const [loadingId, setLoadingId] = useState(null);
-  const [editLpo, setEditLpo] = useState(null);
+  const [editLpo, setEditLpo]     = useState(null);
 
-  const canEdit   = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead'].includes(user?.role);
-  const canAdmin  = ['super_admin', 'admin'].includes(user?.role);
+  const canEdit  = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead'].includes(user?.role);
+  const canAdmin = ['super_admin', 'admin'].includes(user?.role);
   const canDelete = user?.role === 'super_admin';
 
   const updateStatus = async (lpo, action) => {
@@ -155,174 +161,205 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
 
   if (!lpos || lpos.length === 0) {
     return (
-      <>
-        <div className="text-center py-10 text-muted-foreground text-sm border border-dashed border-border rounded-lg">
-          No LPOs for this day yet.
-        </div>
-        <EditLPOModal
-          open={!!editLpo}
-          onClose={() => setEditLpo(null)}
-          lpo={editLpo}
-          onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
-        />
-      </>
+      <div className="text-center py-10 text-muted-foreground text-sm border border-dashed border-border rounded-lg">
+        No LPOs for this day yet.
+      </div>
     );
   }
 
   const groups = groupLpos(lpos);
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-rekker-border">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-rekker-border bg-rekker-surface/80">
-            {HEADERS.map((h) => (
-              <th key={h} className="text-left px-3 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((group, gi) => {
-            const isBatch = !!group.batchId;
-
-            const batchCanIssue    = isBatch && group.lpos.some((l) => !l.issuedAt);
-            const batchCanComplete = isBatch && group.lpos.some((l) => l.issuedAt && !l.completedAt);
-            const batchCanCheck    = isBatch && group.lpos.some((l) => l.completedAt && !l.checkedAt);
-            const batchLoading     = (a) => loadingId === `batch-${group.batchId}-${a}`;
-
-            return group.lpos.map((lpo, li) => {
-              const isLoading      = (a) => loadingId === `${lpo._id}-${a}`;
-              const isFirstInBatch = li === 0;
-              const isDelayed      = lpo.deliveryDate && new Date(lpo.deliveryDate) < new Date() && lpo.status !== 'checked';
-
-              return (
-                <tr
-                  key={lpo._id}
-                  className={cn(
-                    'border-b border-rekker-border/50 transition-colors hover:bg-accent/20',
-                    gi % 2 === 0 ? 'bg-transparent' : 'bg-rekker-surface/20'
-                  )}
+    <>
+      <div className="overflow-x-auto rounded-lg border border-rekker-border">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-rekker-border bg-rekker-surface/80">
+              {HEADERS.map((h) => (
+                <th
+                  key={h}
+                  className="text-left px-3 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap"
                 >
-                  {/* ── LPO Number (with batch accent + icon) ── */}
-                  <td className="px-3 py-3 whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      {isBatch && (
-                        <div className={cn(
-                          'w-0.5 self-stretch rounded-full mr-0.5',
-                          isFirstInBatch ? 'bg-primary/60' : 'bg-primary/30'
-                        )} />
-                      )}
-                      {isBatch && isFirstInBatch && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <Layers className="w-3 h-3 text-primary shrink-0" />
-                            </TooltipTrigger>
-                            <TooltipContent>Batch of {group.lpos.length} LPOs</TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                      {isBatch && !isFirstInBatch && <div className="w-3" />}
-                      <span className="font-mono text-xs font-semibold text-primary tracking-wider">
-                        {lpo.lpoNumber}
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group, gi) => {
+              const isBatch = !!group.batchId;
+              const batchCanIssue    = isBatch && group.lpos.some((l) => !l.issuedAt);
+              const batchCanComplete = isBatch && group.lpos.some((l) => l.issuedAt && !l.completedAt);
+              const batchCanCheck    = isBatch && group.lpos.some((l) => l.completedAt && !l.checkedAt);
+              const batchLoading     = (a) => loadingId === `batch-${group.batchId}-${a}`;
+
+              return group.lpos.map((lpo, li) => {
+                const isLoading      = (a) => loadingId === `${lpo._id}-${a}`;
+                const isFirstInBatch = li === 0;
+                const isDelayed      =
+                  lpo.deliveryDate &&
+                  new Date(lpo.deliveryDate) < new Date() &&
+                  lpo.status !== 'checked';
+
+                return (
+                  <tr
+                    key={lpo._id}
+                    className={cn(
+                      'border-b border-rekker-border/50 transition-colors hover:bg-accent/20',
+                      gi % 2 === 0 ? 'bg-transparent' : 'bg-rekker-surface/20'
+                    )}
+                  >
+                    {/* LPO Number */}
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        {isBatch && (
+                          <div
+                            className={cn(
+                              'w-0.5 self-stretch rounded-full mr-0.5',
+                              isFirstInBatch ? 'bg-primary/60' : 'bg-primary/30'
+                            )}
+                          />
+                        )}
+                        {isBatch && isFirstInBatch && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <Layers className="w-3 h-3 text-primary shrink-0" />
+                              </TooltipTrigger>
+                              <TooltipContent>Batch of {group.lpos.length} LPOs</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                        {isBatch && !isFirstInBatch && <div className="w-3" />}
+                        <span className="font-mono text-xs font-semibold text-primary tracking-wider">
+                          {lpo.lpoNumber}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Branch */}
+                    <td className="px-3 py-3"><BranchCell lpo={lpo} /></td>
+
+                    {/* Amount */}
+                    <td className="px-3 py-3"><AmountCell amount={lpo.amount} /></td>
+
+                    {/* Delivery */}
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      <span className={cn('font-mono text-xs', isDelayed ? 'text-destructive font-semibold' : 'text-foreground')}>
+                        {lpo.deliveryDate ? format(new Date(lpo.deliveryDate), 'dd/MM/yy') : '—'}
+                        {isDelayed && <span className="ml-1 text-[10px]">LATE</span>}
                       </span>
-                    </div>
-                  </td>
+                    </td>
 
-                  {/* ── Branch ── */}
-                  <td className="px-3 py-3"><BranchCell lpo={lpo} /></td>
+                    {/* Status */}
+                    <td className="px-3 py-3 whitespace-nowrap"><StatusBadge status={lpo.status} /></td>
 
-                  {/* ── Amount ── */}
-                  <td className="px-3 py-3"><AmountCell amount={lpo.amount} /></td>
+                    {/* Timestamps */}
+                    <td className="px-3 py-3"><TimeCell timestamp={lpo.issuedAt} /></td>
+                    <td className="px-3 py-3"><TimeCell timestamp={lpo.completedAt} /></td>
+                    <td className="px-3 py-3"><TimeCell timestamp={lpo.checkedAt} /></td>
 
-                  {/* ── Delivery Date ── */}
-                  <td className="px-3 py-3 whitespace-nowrap">
-                    <span className={cn('font-mono text-xs', isDelayed ? 'text-destructive font-semibold' : 'text-foreground')}>
-                      {lpo.deliveryDate ? format(new Date(lpo.deliveryDate), 'dd/MM/yy') : '—'}
-                      {isDelayed && <span className="ml-1 text-[10px]">LATE</span>}
-                    </span>
-                  </td>
+                    {/* Person */}
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      <span className="text-xs text-foreground">{lpo.responsiblePerson?.name || '—'}</span>
+                    </td>
 
-                  {/* ── Status ── */}
-                  <td className="px-3 py-3 whitespace-nowrap"><StatusBadge status={lpo.status} /></td>
+                    {/* Errors */}
+                    <td className="px-3 py-3">
+                      <ErrorLogger lpo={lpo} onUpdated={onUpdated} canEdit={canEdit} />
+                    </td>
 
-                  {/* ── Timestamps ── */}
-                  <td className="px-3 py-3"><TimeCell timestamp={lpo.issuedAt}    /></td>
-                  <td className="px-3 py-3"><TimeCell timestamp={lpo.completedAt} /></td>
-                  <td className="px-3 py-3"><TimeCell timestamp={lpo.checkedAt}   /></td>
+                    {/* Actions */}
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-1 flex-nowrap">
+                        {/* Batch-level buttons — first row only */}
+                        {isBatch && isFirstInBatch && canEdit && (
+                          <>
+                            {batchCanIssue && (
+                              <ActionBtn
+                                icon={Send} label="Issue All" title="Issue all in batch" variant="warning"
+                                onClick={() => updateBatchStatus(group.batchId, 'issue', group.lpos)}
+                                loading={batchLoading('issue')}
+                              />
+                            )}
+                            {batchCanComplete && (
+                              <ActionBtn
+                                icon={ClipboardCheck} label="Complete All" title="Complete all" variant="default"
+                                onClick={() => updateBatchStatus(group.batchId, 'complete', group.lpos)}
+                                loading={batchLoading('complete')}
+                              />
+                            )}
+                            {batchCanCheck && (
+                              <ActionBtn
+                                icon={CheckCheck} label="Check All" title="Check all" variant="success"
+                                onClick={() => updateBatchStatus(group.batchId, 'check', group.lpos)}
+                                loading={batchLoading('check')}
+                              />
+                            )}
+                            <span className="text-muted-foreground/30 text-xs mx-0.5">|</span>
+                          </>
+                        )}
 
-                  {/* ── Person ── */}
-                  <td className="px-3 py-3 whitespace-nowrap">
-                    <span className="text-xs text-foreground">{lpo.responsiblePerson?.name || '—'}</span>
-                  </td>
+                        {/* Individual status buttons */}
+                        {canEdit && !lpo.issuedAt && (
+                          <ActionBtn
+                            icon={Send} label="" title="Issue this LPO" variant="warning"
+                            onClick={() => updateStatus(lpo, 'issue')}
+                            loading={isLoading('issue')}
+                          />
+                        )}
+                        {canEdit && lpo.issuedAt && !lpo.completedAt && (
+                          <ActionBtn
+                            icon={ClipboardCheck} label="" title="Mark completed" variant="default"
+                            onClick={() => updateStatus(lpo, 'complete')}
+                            loading={isLoading('complete')}
+                          />
+                        )}
+                        {canEdit && lpo.completedAt && !lpo.checkedAt && (
+                          <ActionBtn
+                            icon={CheckCheck} label="" title="Mark checked" variant="success"
+                            onClick={() => updateStatus(lpo, 'check')}
+                            loading={isLoading('check')}
+                          />
+                        )}
 
-                  {/* ── Errors ── */}
-                  <td className="px-3 py-3">
-                    <ErrorLogger lpo={lpo} onUpdated={onUpdated} canEdit={canEdit} />
-                  </td>
+                        {/* Edit button — admin only */}
+                        {canAdmin && (
+                          <ActionBtn
+                            icon={Pencil} label="" title="Edit LPO" variant="ghost"
+                            onClick={() => setEditLpo(lpo)}
+                            loading={false}
+                          />
+                        )}
 
-                  {/* ── Actions ── */}
-                  <td className="px-3 py-3">
-                    <div className="flex items-center gap-1 flex-nowrap">
-                      {/* Batch-level actions — shown only on first row */}
-                      {isBatch && isFirstInBatch && canEdit && (
-                        <>
-                          {batchCanIssue && (
-                            <ActionBtn icon={Send} label="Issue All" title="Issue all in batch" variant="warning"
-                              onClick={() => updateBatchStatus(group.batchId, 'issue', group.lpos)}
-                              loading={batchLoading('issue')} />
-                          )}
-                          {batchCanComplete && (
-                            <ActionBtn icon={ClipboardCheck} label="Complete All" title="Complete all" variant="default"
-                              onClick={() => updateBatchStatus(group.batchId, 'complete', group.lpos)}
-                              loading={batchLoading('complete')} />
-                          )}
-                          {batchCanCheck && (
-                            <ActionBtn icon={CheckCheck} label="Check All" title="Check all" variant="success"
-                              onClick={() => updateBatchStatus(group.batchId, 'check', group.lpos)}
-                              loading={batchLoading('check')} />
-                          )}
-                          <span className="text-muted-foreground/30 text-xs mx-0.5">|</span>
-                        </>
-                      )}
+                        {/* Delete — super admin only */}
+                        {canDelete && (
+                          <ActionBtn
+                            icon={Trash2} label="" title="Delete LPO" variant="ghost"
+                            onClick={() => handleDelete(lpo)}
+                            loading={false}
+                          />
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              });
+            })}
+          </tbody>
+        </table>
+      </div>
 
-                      {/* Individual actions */}
-                      {canEdit && !lpo.issuedAt && (
-                        <ActionBtn icon={Send} label="" title="Issue this LPO" variant="warning"
-                          onClick={() => updateStatus(lpo, 'issue')} loading={isLoading('issue')} />
-                      )}
-                      {canEdit && lpo.issuedAt && !lpo.completedAt && (
-                        <ActionBtn icon={ClipboardCheck} label="" title="Mark completed" variant="default"
-                          onClick={() => updateStatus(lpo, 'complete')} loading={isLoading('complete')} />
-                      )}
-                      {canEdit && lpo.completedAt && !lpo.checkedAt && (
-                        <ActionBtn icon={CheckCheck} label="" title="Mark checked" variant="success"
-                          onClick={() => updateStatus(lpo, 'check')} loading={isLoading('check')} />
-                      )}
-                      {canAdmin && (
-                        <ActionBtn icon={Pencil} label="" title="Edit LPO" variant="ghost"
-                          onClick={() => setEditLpo(lpo)} loading={false} />
-                      )}
-                      {canDelete && (
-                        <ActionBtn icon={Trash2} label="" title="Delete LPO" variant="ghost"
-                          onClick={() => handleDelete(lpo)} loading={false} />
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            });
-          })}
-        </tbody>
-      </table>
-    <EditLPOModal
-      open={!!editLpo}
-      onClose={() => setEditLpo(null)}
-      lpo={editLpo}
-      onUpdated={(updated) => { onUpdated(updated); setEditLpo(null); }}
-    />
-    </div>
+      {/* Edit modal — rendered outside the table so it's not inside a <tr> */}
+      <EditLPOModal
+        open={!!editLpo}
+        onClose={() => setEditLpo(null)}
+        lpo={editLpo}
+        onUpdated={(updated) => {
+          onUpdated(updated);
+          setEditLpo(null);
+        }}
+      />
+    </>
   );
 }

@@ -22,7 +22,7 @@ export default function DaySection({ date, lpos: initialLpos, defaultOpen = true
   const [buyerStatus, setBuyerStatus] = useState(null);
   const [open, setOpen] = useState(defaultOpen);
 
-  const canEdit = ['super_admin', 'admin', 'team_lead'].includes(user?.role);
+  const canEdit = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead'].includes(user?.role);
 
   useEffect(() => {
     setLpos(initialLpos);

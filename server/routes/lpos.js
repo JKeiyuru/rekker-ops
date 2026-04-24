@@ -61,7 +61,7 @@ router.get('/uninvoiced', protect, async (req, res) => {
 });
 
 // POST /api/lpos — create single LPO
-router.post('/', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+router.post('/', protect, authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'), async (req, res) => {
   try {
     const { lpoNumber, date, deliveryDate, responsiblePerson, issuedNow, branchId, branchNameRaw, amount } = req.body;
 
@@ -93,7 +93,7 @@ router.post('/', protect, authorize('super_admin', 'admin', 'team_lead'), async 
 });
 
 // POST /api/lpos/batch — create multiple LPOs at once
-router.post('/batch', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+router.post('/batch', protect, authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'), async (req, res) => {
   try {
     const { lpos, issuedNow, date, responsiblePerson } = req.body;
 
@@ -134,7 +134,7 @@ router.post('/batch', protect, authorize('super_admin', 'admin', 'team_lead'), a
 });
 
 // PATCH /api/lpos/:id/status
-router.patch('/:id/status', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+router.patch('/:id/status', protect, authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'), async (req, res) => {
   try {
     const { action } = req.body;
     const lpo = await LPO.findById(req.params.id);
@@ -162,7 +162,7 @@ router.patch('/:id/status', protect, authorize('super_admin', 'admin', 'team_lea
 });
 
 // PATCH /api/lpos/batch/:batchId/status
-router.patch('/batch/:batchId/status', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+router.patch('/batch/:batchId/status', protect, authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'), async (req, res) => {
   try {
     const { action } = req.body;
     const lpos = await LPO.find({ batchId: req.params.batchId });
@@ -188,7 +188,7 @@ router.patch('/batch/:batchId/status', protect, authorize('super_admin', 'admin'
 });
 
 // PATCH /api/lpos/:id/errors
-router.patch('/:id/errors', protect, authorize('super_admin', 'admin', 'team_lead'), async (req, res) => {
+router.patch('/:id/errors', protect, authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'), async (req, res) => {
   try {
     const { errors, notes } = req.body;
     const lpo = await LPO.findById(req.params.id);
