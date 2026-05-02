@@ -1,45 +1,46 @@
 // client/src/components/CheckInWidget.jsx
-// Mobile-first check-in/out widget used on the CheckInPage.
-// Handles GPS capture, distance validation, offline queuing, and sync.
+// Mobile-first check-in/out widget.
+// Handles GPS capture, distance validation, offline queuing, sync,
+// AND allows checkout on past incomplete/active sessions from previous days.
 
 import { useState, useEffect, useCallback } from 'react';
 import {
   MapPin, LogIn, LogOut, Wifi, WifiOff, AlertTriangle,
-  CheckCircle2, XCircle, Loader2, Clock, Navigation,
+  CheckCircle2, XCircle, Loader2, Clock, Navigation, History,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, isToday } from 'date-fns';
 import { enqueueCheckIn, enqueueCheckOut, syncQueue, getUnsyncedCount } from '@/lib/offlineQueue';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 
-// ── Status display config ─────────────────────────────────────────────────────
+// ── Status config ─────────────────────────────────────────────────────────────
 const STATUS_UI = {
-  VALID:             { label: 'On Location',       color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2 },
-  MISMATCH:          { label: 'Wrong Location',    color: 'text-destructive',  bg: 'bg-destructive/10 border-destructive/30',  icon: XCircle      },
-  LOCATION_DISABLED: { label: 'GPS Disabled',      color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/30',    icon: AlertTriangle },
-  OFFLINE:           { label: 'Offline Entry',     color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/30',      icon: WifiOff       },
-  ACTIVE:            { label: 'Checked In',        color: 'text-primary',     bg: 'bg-primary/10 border-primary/30',        icon: LogIn         },
-  COMPLETE:          { label: 'Complete',           color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2 },
-  INCOMPLETE:        { label: 'Incomplete',         color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/30',    icon: AlertTriangle },
-  FLAGGED:           { label: 'Flagged',            color: 'text-destructive',  bg: 'bg-destructive/10 border-destructive/30',  icon: XCircle      },
+  VALID:             { label: 'On Location',    color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2 },
+  MISMATCH:          { label: 'Wrong Location', color: 'text-destructive',  bg: 'bg-destructive/10 border-destructive/30',  icon: XCircle      },
+  LOCATION_DISABLED: { label: 'GPS Disabled',   color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/30',    icon: AlertTriangle },
+  OFFLINE:           { label: 'Offline Entry',  color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/30',      icon: WifiOff       },
+  ACTIVE:            { label: 'Checked In',     color: 'text-primary',     bg: 'bg-primary/10 border-primary/30',        icon: LogIn         },
+  COMPLETE:          { label: 'Complete',        color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2 },
+  INCOMPLETE:        { label: 'Incomplete',      color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/30',    icon: AlertTriangle },
+  FLAGGED:           { label: 'Flagged',         color: 'text-destructive',  bg: 'bg-destructive/10 border-destructive/30',  icon: XCircle      },
 };
 
 function StatusPill({ status }) {
   const cfg = STATUS_UI[status] || STATUS_UI.ACTIVE;
   const Icon = cfg.icon;
   return (
-    <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium border', cfg.bg, cfg.color)}>
-      <Icon className="w-3.5 h-3.5" />
+    <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-medium border', cfg.bg, cfg.color)}>
+      <Icon className="w-3 h-3" />
       {cfg.label}
     </span>
   );
 }
 
-// ── GPS capture hook ──────────────────────────────────────────────────────────
+// ── GPS hook ──────────────────────────────────────────────────────────────────
 function useGPS() {
   const [position, setPosition] = useState(null);
   const [gpsError, setGpsError] = useState(null);
@@ -74,28 +75,34 @@ function useGPS() {
   return { position, gpsError, loading, capture };
 }
 
-// ── Active session card ───────────────────────────────────────────────────────
-function ActiveSessionCard({ session, onCheckOut, checkingOut }) {
+// ── Live elapsed timer ────────────────────────────────────────────────────────
+function useElapsed(startTime) {
   const [elapsed, setElapsed] = useState('');
-
   useEffect(() => {
     const update = () => {
-      const diff = Math.floor((Date.now() - new Date(session.checkInTime)) / 1000);
+      const diff = Math.floor((Date.now() - new Date(startTime)) / 1000);
       const h = Math.floor(diff / 3600);
       const m = Math.floor((diff % 3600) / 60);
       const s = diff % 60;
-      setElapsed(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+      setElapsed(
+        `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+      );
     };
     update();
     const t = setInterval(update, 1000);
     return () => clearInterval(t);
-  }, [session.checkInTime]);
+  }, [startTime]);
+  return elapsed;
+}
 
+// ── Active session card (today) ───────────────────────────────────────────────
+function ActiveSessionCard({ session, onCheckOut, checkingOut }) {
+  const elapsed = useElapsed(session.checkInTime);
   return (
     <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Active Session</p>
+          <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Active Session</p>
           <p className="font-semibold text-foreground mt-0.5">{session.branch?.name}</p>
         </div>
         <StatusPill status={session.checkInStatus} />
@@ -104,7 +111,9 @@ function ActiveSessionCard({ session, onCheckOut, checkingOut }) {
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-lg bg-background/60 px-3 py-2.5">
           <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Checked In</p>
-          <p className="font-mono text-sm text-foreground mt-0.5">{format(new Date(session.checkInTime), 'HH:mm:ss')}</p>
+          <p className="font-mono text-sm text-foreground mt-0.5">
+            {format(new Date(session.checkInTime), 'HH:mm:ss')}
+          </p>
         </div>
         <div className="rounded-lg bg-background/60 px-3 py-2.5">
           <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Elapsed</p>
@@ -119,12 +128,7 @@ function ActiveSessionCard({ session, onCheckOut, checkingOut }) {
         </div>
       )}
 
-      <Button
-        className="w-full"
-        variant={checkingOut ? 'outline' : 'destructive'}
-        disabled={checkingOut}
-        onClick={() => onCheckOut(session)}
-      >
+      <Button className="w-full" variant="destructive" disabled={checkingOut} onClick={() => onCheckOut(session)}>
         {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
         {checkingOut ? 'Checking Out…' : 'Check Out'}
       </Button>
@@ -132,12 +136,49 @@ function ActiveSessionCard({ session, onCheckOut, checkingOut }) {
   );
 }
 
-// ── Past session row ──────────────────────────────────────────────────────────
+// ── Incomplete/past session card — shows for sessions from other days ─────────
+function IncompleteSessionCard({ session, onCheckOut, checkingOut }) {
+  const sessionDate = session.date;
+  const dateLabel = isToday(new Date(sessionDate + 'T00:00:00'))
+    ? 'Today'
+    : format(new Date(sessionDate + 'T00:00:00'), 'EEE dd MMM');
+
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <History className="w-3.5 h-3.5 text-amber-400" />
+            <p className="text-[10px] font-mono text-amber-400 uppercase tracking-wider">
+              Incomplete — {dateLabel}
+            </p>
+          </div>
+          <p className="font-semibold text-foreground mt-0.5">{session.branch?.name}</p>
+          <p className="text-xs text-muted-foreground font-mono mt-0.5">
+            Checked in at {format(new Date(session.checkInTime), 'HH:mm')} — never checked out
+          </p>
+        </div>
+        <StatusPill status="INCOMPLETE" />
+      </div>
+
+      <Button
+        className="w-full"
+        variant="warning"
+        disabled={checkingOut}
+        onClick={() => onCheckOut(session)}
+      >
+        {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
+        {checkingOut ? 'Checking Out…' : 'Check Out Now'}
+      </Button>
+    </div>
+  );
+}
+
+// ── Past (completed) session row ──────────────────────────────────────────────
 function PastSessionRow({ session }) {
   const duration = session.durationMinutes != null
     ? `${Math.floor(session.durationMinutes / 60)}h ${session.durationMinutes % 60}m`
     : '—';
-
   return (
     <div className="flex items-center justify-between py-2.5 border-b border-border/50 last:border-0">
       <div className="min-w-0">
@@ -155,25 +196,36 @@ function PastSessionRow({ session }) {
 
 // ── Main Widget ───────────────────────────────────────────────────────────────
 export default function CheckInWidget({ assignments, sessions: initialSessions, onSessionUpdate }) {
-  const [sessions, setSessions]       = useState(initialSessions || []);
+  const [sessions, setSessions]           = useState(initialSessions || []);
   const [selectedBranch, setSelectedBranch] = useState('');
-  const [checkingIn, setCheckingIn]   = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [isOnline, setIsOnline]       = useState(navigator.onLine);
+  const [checkingIn, setCheckingIn]       = useState(false);
+  // Map of sessionId → boolean for individual checkout loading states
+  const [checkingOutId, setCheckingOutId] = useState(null);
+  const [isOnline, setIsOnline]           = useState(navigator.onLine);
   const [unsyncedCount, setUnsyncedCount] = useState(getUnsyncedCount());
-  const [syncing, setSyncing]         = useState(false);
+  const [syncing, setSyncing]             = useState(false);
   const { position, gpsError, loading: gpsLoading, capture } = useGPS();
 
-  const activeSession = sessions.find((s) => !s.checkOutTime);
-  const pastSessions  = sessions.filter((s) => !!s.checkOutTime);
-
-  // Device fingerprint (basic)
   const deviceInfo = `${navigator.userAgent.slice(0, 100)} | ${screen.width}x${screen.height}`;
 
+  // Today's active session (no checkout yet, from today)
+  const todayDate   = new Date().toISOString().split('T')[0];
+  const activeSession = sessions.find((s) => !s.checkOutTime && s.date === todayDate);
+
+  // Past incomplete sessions (no checkout, from PREVIOUS days)
+  const incompleteSessions = sessions.filter(
+    (s) => !s.checkOutTime && s.date !== todayDate
+  );
+
+  // Completed sessions today (for display at bottom)
+  const todayCompletedSessions = sessions.filter(
+    (s) => !!s.checkOutTime && s.date === todayDate
+  );
+
   useEffect(() => {
-    const online  = () => { setIsOnline(true);  handleSync(); };
+    const online  = () => { setIsOnline(true); handleSync(); };
     const offline = () => setIsOnline(false);
-    window.addEventListener('online',  online);
+    window.addEventListener('online', online);
     window.addEventListener('offline', offline);
     return () => { window.removeEventListener('online', online); window.removeEventListener('offline', offline); };
   }, []);
@@ -192,44 +244,43 @@ export default function CheckInWidget({ assignments, sessions: initialSessions, 
   const handleCheckIn = async () => {
     if (!selectedBranch) return toast.error('Select a branch first');
     setCheckingIn(true);
-
     const coords = await capture();
 
-    if (!coords.available && !gpsError?.includes('denied')) {
-      toast.error('GPS is required to check in. Please enable location access.');
-      setCheckingIn(false);
-      return;
+    if (!coords.available) {
+      // Warn but allow offline check-in
+      if (!isOnline) {
+        // Still proceed as offline entry
+      }
     }
 
     try {
       if (!isOnline) {
-        // Store offline
         const entry = enqueueCheckIn({
-          branchId: selectedBranch,
+          branchId:   selectedBranch,
           branchName: assignments.find((a) => a.branch._id === selectedBranch)?.branch?.name || '',
-          lat: coords.lat,
-          lng: coords.lng,
+          lat:        coords.lat,
+          lng:        coords.lng,
           deviceInfo,
         });
         setUnsyncedCount(getUnsyncedCount());
         toast('Check-in saved offline. Will sync when online.', { icon: '📴' });
-        // Add optimistic session to UI
         const optimistic = {
-          _id: entry.tempId,
-          branch: { name: entry.branchName, _id: selectedBranch },
-          checkInTime: entry.checkInTime,
+          _id:           entry.tempId,
+          branch:        { name: entry.branchName, _id: selectedBranch },
+          checkInTime:   entry.checkInTime,
           checkInStatus: 'OFFLINE',
-          checkOutTime: null,
+          checkOutTime:  null,
           sessionStatus: 'ACTIVE',
+          date:          todayDate,
           isOfflineEntry: true,
         };
         setSessions((prev) => [...prev, optimistic]);
         if (onSessionUpdate) onSessionUpdate(optimistic);
       } else {
         const res = await api.post('/checkins/checkin', {
-          branchId: selectedBranch,
-          lat: coords.lat,
-          lng: coords.lng,
+          branchId:     selectedBranch,
+          lat:          coords.lat,
+          lng:          coords.lng,
           gpsAvailable: coords.available,
           deviceInfo,
         });
@@ -253,7 +304,7 @@ export default function CheckInWidget({ assignments, sessions: initialSessions, 
   };
 
   const handleCheckOut = async (session) => {
-    setCheckingOut(true);
+    setCheckingOutId(session._id);
     const coords = await capture();
 
     try {
@@ -261,16 +312,17 @@ export default function CheckInWidget({ assignments, sessions: initialSessions, 
         enqueueCheckOut(session._id, { lat: coords.lat, lng: coords.lng });
         setUnsyncedCount(getUnsyncedCount());
         setSessions((prev) =>
-          prev.map((s) => s._id === session._id
-            ? { ...s, checkOutTime: new Date().toISOString(), sessionStatus: 'COMPLETE' }
-            : s
+          prev.map((s) =>
+            s._id === session._id
+              ? { ...s, checkOutTime: new Date().toISOString(), sessionStatus: 'COMPLETE' }
+              : s
           )
         );
         toast('Check-out saved offline.', { icon: '📴' });
       } else {
         const res = await api.patch(`/checkins/${session._id}/checkout`, {
-          lat: coords.lat,
-          lng: coords.lng,
+          lat:          coords.lat,
+          lng:          coords.lng,
           gpsAvailable: coords.available,
         });
         setSessions((prev) => prev.map((s) => s._id === res.data._id ? res.data : s));
@@ -280,16 +332,18 @@ export default function CheckInWidget({ assignments, sessions: initialSessions, 
     } catch (err) {
       toast.error(err.response?.data?.message || 'Check-out failed');
     } finally {
-      setCheckingOut(false);
+      setCheckingOutId(null);
     }
   };
 
   return (
     <div className="space-y-4 max-w-md mx-auto">
-      {/* Online/Offline + Sync banner */}
+      {/* Online/offline banner */}
       <div className={cn(
         'flex items-center justify-between px-4 py-2.5 rounded-lg border text-xs font-mono',
-        isOnline ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400' : 'border-amber-500/30 bg-amber-500/5 text-amber-400'
+        isOnline
+          ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+          : 'border-amber-500/30 bg-amber-500/5 text-amber-400'
       )}>
         <div className="flex items-center gap-2">
           {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
@@ -318,19 +372,37 @@ export default function CheckInWidget({ assignments, sessions: initialSessions, 
         </div>
       )}
 
-      {/* Active session */}
+      {/* ── Incomplete sessions from previous days ── */}
+      {incompleteSessions.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-xs font-mono text-amber-400 uppercase tracking-wider flex items-center gap-2 px-1">
+            <History className="w-3.5 h-3.5" />
+            {incompleteSessions.length} incomplete session{incompleteSessions.length !== 1 ? 's' : ''} need check-out
+          </p>
+          {incompleteSessions.map((s) => (
+            <IncompleteSessionCard
+              key={s._id}
+              session={s}
+              onCheckOut={handleCheckOut}
+              checkingOut={checkingOutId === s._id}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Today's active session ── */}
       {activeSession && (
         <ActiveSessionCard
           session={activeSession}
           onCheckOut={handleCheckOut}
-          checkingOut={checkingOut}
+          checkingOut={checkingOutId === activeSession._id}
         />
       )}
 
-      {/* New check-in form */}
+      {/* ── New check-in form (only if no active session today) ── */}
       {!activeSession && (
         <div className="rounded-xl border border-rekker-border bg-rekker-surface p-4 space-y-3">
-          <p className="text-sm font-semibold text-foreground">Check In</p>
+          <p className="text-sm font-semibold text-foreground">Check In Today</p>
 
           {assignments.length === 0 ? (
             <p className="text-xs text-muted-foreground py-4 text-center border border-dashed border-border rounded-lg">
@@ -350,7 +422,9 @@ export default function CheckInWidget({ assignments, sessions: initialSessions, 
                         <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
                         {a.branch.name}
                         {a.expectedCheckIn && (
-                          <span className="text-xs text-muted-foreground ml-1">· from {a.expectedCheckIn}</span>
+                          <span className="text-xs text-muted-foreground ml-1">
+                            · from {a.expectedCheckIn}
+                          </span>
                         )}
                       </span>
                     </SelectItem>
@@ -358,9 +432,14 @@ export default function CheckInWidget({ assignments, sessions: initialSessions, 
                 </SelectContent>
               </Select>
 
-              <Button className="w-full" onClick={handleCheckIn}
-                disabled={checkingIn || gpsLoading || !selectedBranch}>
-                {(checkingIn || gpsLoading) ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+              <Button
+                className="w-full"
+                onClick={handleCheckIn}
+                disabled={checkingIn || gpsLoading || !selectedBranch}
+              >
+                {(checkingIn || gpsLoading)
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <LogIn className="w-4 h-4" />}
                 {gpsLoading ? 'Getting GPS…' : checkingIn ? 'Checking In…' : 'Check In'}
               </Button>
             </>
@@ -368,11 +447,15 @@ export default function CheckInWidget({ assignments, sessions: initialSessions, 
         </div>
       )}
 
-      {/* Today's sessions history */}
-      {pastSessions.length > 0 && (
+      {/* ── Today's completed sessions ── */}
+      {todayCompletedSessions.length > 0 && (
         <div className="rounded-xl border border-rekker-border bg-rekker-surface p-4">
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-3">Today's Sessions</p>
-          {pastSessions.map((s) => <PastSessionRow key={s._id} session={s} />)}
+          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-3">
+            Today's Sessions
+          </p>
+          {todayCompletedSessions.map((s) => (
+            <PastSessionRow key={s._id} session={s} />
+          ))}
         </div>
       )}
     </div>

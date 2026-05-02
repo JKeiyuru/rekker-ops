@@ -11,46 +11,46 @@ const invoiceSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
     },
-    // The LPO this invoice is linked to
     lpo: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'LPO',
       required: true,
     },
-    // Duplicated for quick display without populate
-    lpoNumber: {
-      type: String,
-      trim: true,
-      uppercase: true,
-    },
+    lpoNumber: { type: String, trim: true, uppercase: true },
 
     // Financial fields
-    amountExVat: {
-      type: Number,
-      required: true,
-    },
-    amountInclVat: {
-      type: Number,
-      required: true,
-    },
-    // VAT rate used (for reference; default 16% Kenya standard)
-    vatRate: {
-      type: Number,
-      default: 16,
-    },
+    amountExVat:     { type: Number, required: true },
+    amountInclVat:   { type: Number, required: true },
+    vatRate:         { type: Number, default: 16 },
 
-    // Disparity tracking
-    // Difference = invoiceAmountExVat - lpo.amount
-    // Positive = invoice higher than LPO, Negative = invoice lower
-    disparityAmount: {
-      type: Number,
+    // Disparity
+    disparityAmount: { type: Number, default: null },
+    disparityReason: { type: String, trim: true, default: '' },
+
+    // Who physically delivered the goods (free text, optional)
+    deliveredBy: { type: String, trim: true, default: '' },
+
+    // Returns — can be updated any time, including post-approval
+    returns:          { type: String, trim: true, default: '' },
+    returnsUpdatedAt: { type: Date, default: null },
+    returnsUpdatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
       default: null,
     },
-    disparityReason: {
-      type: String,
-      trim: true,
-      default: '',
-    },
+
+    // Edit audit trail
+    isEdited:  { type: Boolean, default: false },
+    editedAt:  { type: Date, default: null },
+    editedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    editHistory: [
+      {
+        editedAt:     Date,
+        editedBy:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        fieldsChanged: [String],
+        snapshot:     mongoose.Schema.Types.Mixed, // values before the edit
+      },
+    ],
 
     // Workflow status
     status: {
@@ -58,28 +58,18 @@ const invoiceSchema = new mongoose.Schema(
       enum: ['draft', 'submitted', 'approved', 'rejected'],
       default: 'draft',
     },
-    submittedAt: { type: Date, default: null },
-    approvedAt:  { type: Date, default: null },
-    rejectedAt:  { type: Date, default: null },
+    submittedAt:     { type: Date, default: null },
+    approvedAt:      { type: Date, default: null },
+    rejectedAt:      { type: Date, default: null },
     rejectionReason: { type: String, default: '' },
 
     // Branch (copied from LPO for fast display)
-    branch: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Branch',
-      default: null,
-    },
+    branch:        { type: mongoose.Schema.Types.ObjectId, ref: 'Branch', default: null },
     branchNameRaw: { type: String, default: '' },
 
-    date: {
-      type: Date,
-      default: Date.now,
-    },
+    date: { type: Date, default: Date.now },
 
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }
 );
