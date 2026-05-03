@@ -20,6 +20,7 @@ const branchRoutes  = require('./routes/branches');
 const invoiceRoutes  = require('./routes/invoices');
 const checkinRoutes  = require('./routes/checkins');
 const assignmentRoutes = require('./routes/assignments');
+const mapsRoutes       = require('./routes/maps');
 
 const app = express();
 
@@ -72,6 +73,7 @@ app.use('/api/branches', branchRoutes);
 app.use('/api/invoices',     invoiceRoutes);
 app.use('/api/checkins',     checkinRoutes);
 app.use('/api/assignments',  assignmentRoutes);
+app.use('/api/maps',         mapsRoutes);
 
 // Root route (for Render)
 app.get('/', (req, res) => {
