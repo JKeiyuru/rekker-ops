@@ -40,11 +40,18 @@ router.get('/pending-count', protect, authorize('super_admin', 'admin'), async (
 // POST /api/branches — admin creates a verified branch
 router.post('/', protect, authorize('super_admin', 'admin'), async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, latitude, longitude, allowedRadius } = req.body;
     if (!name) return res.status(400).json({ message: 'Name required' });
     const existing = await Branch.findOne({ name: new RegExp(`^${name}$`, 'i') });
     if (existing) return res.status(400).json({ message: 'Branch already exists' });
-    const branch = await Branch.create({ name, isVerified: true, addedBy: req.user._id });
+    const branch = await Branch.create({
+      name,
+      isVerified:    true,
+      addedBy:       req.user._id,
+      latitude:      latitude      ?? null,
+      longitude:     longitude     ?? null,
+      allowedRadius: allowedRadius ?? 100,
+    });
     res.status(201).json(branch);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -57,15 +64,14 @@ router.post('/suggest', protect, async (req, res) => {
     const { name } = req.body;
     if (!name) return res.status(400).json({ message: 'Name required' });
 
-    // Check if already exists (verified or not)
     const existing = await Branch.findOne({ name: new RegExp(`^${name}$`, 'i') });
-    if (existing) return res.json(existing); // return existing so LPO creation can reference it
+    if (existing) return res.json(existing);
 
     const branch = await Branch.create({
       name,
-      isVerified: false,
+      isVerified:      false,
       notificationRead: false,
-      addedBy: req.user._id,
+      addedBy:         req.user._id,
     });
     res.status(201).json(branch);
   } catch (err) {
@@ -74,12 +80,26 @@ router.post('/suggest', protect, async (req, res) => {
 });
 
 // PUT /api/branches/:id — update branch (admin)
+// Now includes latitude, longitude, allowedRadius
 router.put('/:id', protect, authorize('super_admin', 'admin'), async (req, res) => {
   try {
-    const { name, isActive, isVerified, notificationRead } = req.body;
+    const {
+      name, isActive, isVerified, notificationRead,
+      latitude, longitude, allowedRadius,
+    } = req.body;
+
+    const update = {};
+    if (name              !== undefined) update.name              = name;
+    if (isActive          !== undefined) update.isActive          = isActive;
+    if (isVerified        !== undefined) update.isVerified        = isVerified;
+    if (notificationRead  !== undefined) update.notificationRead  = notificationRead;
+    if (latitude          !== undefined) update.latitude          = latitude;
+    if (longitude         !== undefined) update.longitude         = longitude;
+    if (allowedRadius     !== undefined) update.allowedRadius     = allowedRadius;
+
     const branch = await Branch.findByIdAndUpdate(
       req.params.id,
-      { name, isActive, isVerified, notificationRead },
+      update,
       { new: true }
     );
     if (!branch) return res.status(404).json({ message: 'Branch not found' });
