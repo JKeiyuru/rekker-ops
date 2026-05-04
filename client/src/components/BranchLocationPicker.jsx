@@ -1,165 +1,214 @@
 // client/src/components/BranchLocationPicker.jsx
-// Search for a location using Google Maps Places API (proxied through the server)
-// and confirm lat/lng for a branch.
+// No Google API key required.
+// Admin pastes a Google Maps share link (or types raw coordinates)
+// and the system extracts lat/lng from it.
 
-import { useState, useRef, useEffect } from 'react';
-import { Search, MapPin, CheckCircle2, Loader2, Navigation } from 'lucide-react';
+import { useState } from 'react';
+import { Link, CheckCircle2, AlertCircle, Loader2, Navigation, HelpCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import api from '@/lib/api';
 
+// Instructions for how to get a shareable link from Google Maps
+const HOW_TO = [
+  'Open Google Maps on your phone or computer',
+  'Search for the branch location',
+  'Tap the location pin or result card',
+  'Tap "Share" → "Copy link"',
+  'Paste the link below',
+];
+
 export default function BranchLocationPicker({ value, onChange }) {
   // value = { latitude, longitude, allowedRadius }
-  const [query, setQuery]           = useState('');
-  const [suggestions, setSuggestions] = useState([]);
-  const [searching, setSearching]   = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [confirmed, setConfirmed]   = useState(
+  const [input, setInput]       = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
+  const [confirmed, setConfirmed] = useState(
     value?.latitude != null && value?.longitude != null
   );
-  const [address, setAddress]       = useState('');
-  const debounceRef = useRef(null);
+  const [showHelp, setShowHelp] = useState(false);
 
-  useEffect(() => {
-    if (value?.latitude != null && value?.longitude != null) {
-      setConfirmed(true);
-    }
-  }, [value]);
-
-  const handleSearch = (val) => {
-    setQuery(val);
-    setConfirmed(false);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!val.trim()) { setSuggestions([]); setShowDropdown(false); return; }
-
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await api.get('/maps/search', { params: { q: val } });
-        setSuggestions(Array.isArray(res.data) ? res.data : []);
-        setShowDropdown(true);
-      } catch {
-        setSuggestions([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 400);
-  };
-
-  const handleSelect = async (suggestion) => {
-    setShowDropdown(false);
-    setQuery(suggestion.description);
-    setSearching(true);
+  const handleParse = async () => {
+    if (!input.trim()) return;
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.get(`/maps/place/${suggestion.placeId}`);
-      const { lat, lng, address: addr } = res.data;
-      setAddress(addr || suggestion.description);
+      const res = await api.post('/maps/parse', { url: input.trim() });
       setConfirmed(true);
       onChange({
-        latitude:      lat,
-        longitude:     lng,
-        allowedRadius: value?.allowedRadius || 100,
+        latitude:      res.data.lat,
+        longitude:     res.data.lng,
+        allowedRadius: value?.allowedRadius ?? 100,
       });
-    } catch {
-      // fallback: no coords
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not read coordinates from that link');
+      setConfirmed(false);
     } finally {
-      setSearching(false);
+      setLoading(false);
     }
   };
 
   const handleUseMyLocation = () => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      setError('GPS not available on this device');
+      return;
+    }
+    setLoading(true);
+    setError('');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
+        setInput(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
         setConfirmed(true);
-        setQuery(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
-        setAddress('Current location');
-        onChange({ latitude, longitude, allowedRadius: value?.allowedRadius || 100 });
+        setLoading(false);
+        onChange({ latitude, longitude, allowedRadius: value?.allowedRadius ?? 100 });
       },
-      () => {}
+      () => {
+        setError('Could not get your location. Check browser permissions.');
+        setLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
-  const isMapsConfigured = true; // optimistic; server returns 503 if not configured
+  const handleClear = () => {
+    setInput('');
+    setConfirmed(false);
+    setError('');
+    onChange({ latitude: null, longitude: null, allowedRadius: value?.allowedRadius ?? 100 });
+  };
 
   return (
-    <div className="space-y-2">
-      {/* Search box */}
-      <div className="relative">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+    <div className="space-y-3">
+      {/* Input row */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder="Search for branch location…"
-            value={query}
-            onChange={(e) => handleSearch(e.target.value)}
-            onFocus={() => suggestions.length && setShowDropdown(true)}
-            onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-            className={cn('pl-9', confirmed && 'border-emerald-500/50')}
+            placeholder="Paste Google Maps link or type: -1.2921, 36.8219"
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setConfirmed(false);
+              setError('');
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && handleParse()}
+            className={cn(
+              'pl-9 text-sm',
+              confirmed && 'border-emerald-500/50',
+              error && 'border-destructive/50'
+            )}
           />
-          {searching && (
-            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-muted-foreground" />
-          )}
         </div>
-
-        {/* Autocomplete dropdown */}
-        {showDropdown && suggestions.length > 0 && (
-          <div className="absolute z-50 w-full mt-1 rounded-lg border border-border bg-popover shadow-xl overflow-hidden">
-            {suggestions.slice(0, 6).map((s) => (
-              <button
-                key={s.placeId}
+        <Button
+          type="button"
+          size="sm"
+          onClick={handleParse}
+          disabled={loading || !input.trim()}
+          className="shrink-0"
+        >
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Set'}
+        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
                 type="button"
-                onMouseDown={() => handleSelect(s)}
-                className="w-full text-left px-3 py-2.5 text-sm hover:bg-accent transition-colors flex items-start gap-2"
+                size="sm"
+                variant="ghost"
+                className="shrink-0 px-2"
+                onClick={() => setShowHelp((h) => !h)}
               >
-                <MapPin className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                <span className="text-foreground">{s.description}</span>
-              </button>
-            ))}
-          </div>
-        )}
+                <HelpCircle className="w-3.5 h-3.5 text-muted-foreground" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>How to get a Google Maps link</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
-      {/* Confirmed location display */}
-      {confirmed && value?.latitude != null && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 text-xs text-emerald-400 font-mono">
-          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-          <span className="flex-1 truncate">{address || `${value.latitude.toFixed(5)}, ${value.longitude.toFixed(5)}`}</span>
+      {/* How-to instructions (collapsible) */}
+      {showHelp && (
+        <div className="rounded-lg border border-border bg-accent/20 p-3 space-y-1.5">
+          <p className="text-xs font-semibold text-foreground">How to get a Google Maps link:</p>
+          {HOW_TO.map((step, i) => (
+            <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+              <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                {i + 1}
+              </span>
+              {step}
+            </div>
+          ))}
+          <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">
+            <span className="text-foreground font-medium">Alternative:</span> If you're physically at the branch,
+            click "Use my location" below to capture coordinates directly.
+          </p>
         </div>
       )}
 
-      {/* Radius + use my location */}
+      {/* Confirmed display */}
+      {confirmed && value?.latitude != null && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 text-xs text-emerald-400 font-mono">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1">
+            {value.latitude.toFixed(6)}, {value.longitude.toFixed(6)}
+          </span>
+          <button
+            type="button"
+            onClick={handleClear}
+            className="text-muted-foreground hover:text-foreground text-[10px] underline"
+          >
+            clear
+          </button>
+        </div>
+      )}
+
+      {/* Error display */}
+      {error && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-destructive/30 bg-destructive/5 text-xs text-destructive">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {/* Bottom row: use my location + radius */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 flex-1">
-          <label className="text-xs text-muted-foreground font-mono whitespace-nowrap">Radius (m)</label>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs text-muted-foreground hover:text-foreground"
+          onClick={handleUseMyLocation}
+          disabled={loading}
+        >
+          <Navigation className="w-3 h-3 mr-1.5" />
+          Use my location
+        </Button>
+
+        <div className="flex items-center gap-2 ml-auto">
+          <label className="text-xs text-muted-foreground font-mono whitespace-nowrap">
+            Allowed radius
+          </label>
           <Input
             type="number"
             min="10"
             max="5000"
             className="h-7 text-sm w-20 font-mono"
             value={value?.allowedRadius ?? 100}
-            onChange={(e) => onChange({ ...value, allowedRadius: Number(e.target.value) })}
+            onChange={(e) =>
+              onChange({ ...value, allowedRadius: Number(e.target.value) })
+            }
           />
+          <span className="text-xs text-muted-foreground">m</span>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={handleUseMyLocation}
-        >
-          <Navigation className="w-3 h-3 mr-1" />
-          Use my location
-        </Button>
       </div>
 
-      {/* No API key hint */}
-      {!process.env.VITE_MAPS_CONFIGURED && (
-        <p className="text-[11px] text-muted-foreground font-mono">
-          Requires <code>GOOGLE_MAPS_API_KEY</code> in server <code>.env</code>
-        </p>
-      )}
+      {/* What formats are accepted */}
+      <p className="text-[11px] text-muted-foreground font-mono leading-relaxed">
+        Accepts: Google Maps share links · maps.app.goo.gl links · raw coordinates (-1.2921, 36.8219)
+      </p>
     </div>
   );
 }

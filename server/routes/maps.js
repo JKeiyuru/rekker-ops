@@ -1,89 +1,81 @@
 // server/routes/maps.js
-// Proxy for Google Maps Places API — keeps the API key server-side.
+// No Google API key required.
+// Parses coordinates from a pasted Google Maps URL or raw lat,lng input.
 
 const express = require('express');
 const router  = express.Router();
 const { protect } = require('../middleware/auth');
 
-// GET /api/maps/search?q=sarit+mall+nairobi
-router.get('/search', protect, async (req, res) => {
-  try {
-    const { q } = req.query;
-    if (!q) return res.status(400).json({ message: 'Query required' });
+// ── Extract lat/lng from various Google Maps URL formats ──────────────────────
+function parseGoogleMapsUrl(input) {
+  if (!input) return null;
+  input = input.trim();
 
-    const key = process.env.GOOGLE_MAPS_API_KEY;
-    if (!key) return res.status(503).json({ message: 'Maps API not configured — add GOOGLE_MAPS_API_KEY to env' });
-
-    // NOTE: no &components=country:ke so results are not geo-restricted
-    // (country restriction can silently cause ZERO_RESULTS if the
-    //  data centre IP doesn't match the region bias)
-    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json` +
-                `?input=${encodeURIComponent(q)}` +
-                `&key=${key}` +
-                `&language=en` +
-                `&location=-1.2921,36.8219` +  // Nairobi bias
-                `&radius=50000`;               // 50 km bias radius
-
-    const response = await fetch(url);
-    const data     = await response.json();
-
-    // Always log the Google status so we can see what's happening in Render logs
-    console.log(`[Maps] query="${q}" status=${data.status} predictions=${data.predictions?.length ?? 0}`);
-
-    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-      // Surface the real error (REQUEST_DENIED, INVALID_REQUEST, etc.)
-      console.error('[Maps] Google error:', data.status, data.error_message || '');
-      return res.status(502).json({
-        message: `Google Maps error: ${data.status}`,
-        detail:  data.error_message || '',
-      });
-    }
-
-    const suggestions = (data.predictions || []).map((p) => ({
-      placeId:     p.place_id,
-      description: p.description,
-    }));
-
-    res.json(suggestions);
-  } catch (err) {
-    console.error('[Maps] fetch error:', err.message);
-    res.status(500).json({ message: err.message });
+  // 1. Raw coordinates: "-1.2921, 36.8219" or "-1.2921,36.8219"
+  const rawCoords = input.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+  if (rawCoords) {
+    return { lat: parseFloat(rawCoords[1]), lng: parseFloat(rawCoords[2]) };
   }
-});
 
-// GET /api/maps/place/:placeId
-router.get('/place/:placeId', protect, async (req, res) => {
+  // 2. URL with ?q=-1.2921,36.8219 or ?q=place+name@-1.2921,36.8219
+  const qParam = input.match(/[?&]q=([^&]*)/);
+  if (qParam) {
+    const qVal = decodeURIComponent(qParam[1]);
+    const coordsInQ = qVal.match(/(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (coordsInQ) {
+      return { lat: parseFloat(coordsInQ[1]), lng: parseFloat(coordsInQ[2]) };
+    }
+  }
+
+  // 3. URL with @lat,lng  e.g. maps/@-1.2921,36.8219,17z
+  const atCoords = input.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (atCoords) {
+    return { lat: parseFloat(atCoords[1]), lng: parseFloat(atCoords[2]) };
+  }
+
+  // 4. URL with /place/.../@lat,lng  (Google Maps place links)
+  const placeAt = input.match(/\/place\/[^/]+\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (placeAt) {
+    return { lat: parseFloat(placeAt[1]), lng: parseFloat(placeAt[2]) };
+  }
+
+  // 5. Embed src with pb=...!3d{lat}!4d{lng}
+  const pbCoords = input.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/);
+  if (pbCoords) {
+    return { lat: parseFloat(pbCoords[1]), lng: parseFloat(pbCoords[2]) };
+  }
+
+  // 6. ll= parameter  e.g. ?ll=-1.2921,36.8219
+  const llParam = input.match(/[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (llParam) {
+    return { lat: parseFloat(llParam[1]), lng: parseFloat(llParam[2]) };
+  }
+
+  return null;
+}
+
+// POST /api/maps/parse — parse coordinates from a Google Maps link or raw coords
+router.post('/parse', protect, async (req, res) => {
   try {
-    const key = process.env.GOOGLE_MAPS_API_KEY;
-    if (!key) return res.status(503).json({ message: 'Maps API not configured' });
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ message: 'URL or coordinates required' });
 
-    const url = `https://maps.googleapis.com/maps/api/place/details/json` +
-                `?place_id=${req.params.placeId}` +
-                `&fields=geometry,name,formatted_address` +
-                `&key=${key}`;
+    const coords = parseGoogleMapsUrl(url);
 
-    const response = await fetch(url);
-    const data     = await response.json();
-
-    console.log(`[Maps] place lookup status=${data.status}`);
-
-    if (data.status !== 'OK') {
-      console.error('[Maps] Place details error:', data.status, data.error_message || '');
-      return res.status(400).json({
-        message: `Google Maps error: ${data.status}`,
-        detail:  data.error_message || '',
+    if (!coords) {
+      return res.status(422).json({
+        message: 'Could not extract coordinates. Please paste the full Google Maps link or type coordinates as: -1.2921, 36.8219',
       });
     }
 
-    const { lat, lng } = data.result.geometry.location;
-    res.json({
-      lat,
-      lng,
-      name:    data.result.name,
-      address: data.result.formatted_address,
-    });
+    // Basic sanity check — valid lat/lng ranges
+    if (coords.lat < -90 || coords.lat > 90 || coords.lng < -180 || coords.lng > 180) {
+      return res.status(422).json({ message: 'Coordinates out of range' });
+    }
+
+    console.log(`[Maps] parsed lat=${coords.lat} lng=${coords.lng} from input`);
+    res.json({ lat: coords.lat, lng: coords.lng });
   } catch (err) {
-    console.error('[Maps] place fetch error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
