@@ -1,7 +1,5 @@
 // client/src/pages/UsersPage.jsx
-// Two tabs: Staff (packaging team users) and Merchandisers.
-// Merchandisers are Users with role='merchandiser' and appear in the
-// Assignments dialog when scheduling daily branch visits.
+// Three tabs: Staff, Merchandisers, Field Ops (fresh produce field roles).
 
 import { useEffect, useState } from 'react';
 import { Plus, Edit2, Trash2, UserCheck, UserX, Loader2 } from 'lucide-react';
@@ -23,28 +21,34 @@ import { format } from 'date-fns';
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ROLE_CONFIG = {
+  super_admin:               { label: 'Super Admin',     variant: 'default'   },
+  admin:                     { label: 'Admin',           variant: 'warning'   },
+  team_lead:                 { label: 'Team Lead',       variant: 'secondary' },
   packaging_team_lead:       { label: 'Packaging Lead',  variant: 'default'   },
   merchandising_team_lead:   { label: 'Merch. Lead',     variant: 'default'   },
-  super_admin:  { label: 'Super Admin',  variant: 'default'   },
-  admin:        { label: 'Admin',        variant: 'warning'   },
-  team_lead:    { label: 'Team Lead',    variant: 'secondary' },
-  merchandiser: { label: 'Merchandiser', variant: 'default'   },
-  fresh_team_lead:          { label: 'Fresh Lead',    variant: 'default'   },
-  driver:                   { label: 'Driver',        variant: 'secondary' },
-  turnboy:                  { label: 'Turnboy',       variant: 'secondary' },
-  farm_sourcing:            { label: 'Farm Sourcing', variant: 'secondary' },
-  market_sourcing:          { label: 'Market Sourcing', variant: 'secondary' },
-  viewer:       { label: 'Viewer',       variant: 'outline'   },
+  fresh_team_lead:           { label: 'Fresh Lead',      variant: 'default'   },
+  merchandiser:              { label: 'Merchandiser',    variant: 'default'   },
+  driver:                    { label: 'Driver',          variant: 'secondary' },
+  turnboy:                   { label: 'Turnboy / Helper',variant: 'secondary' },
+  farm_sourcing:             { label: 'Farm Sourcing',   variant: 'secondary' },
+  market_sourcing:           { label: 'Market Sourcing', variant: 'secondary' },
+  viewer:                    { label: 'Viewer',          variant: 'outline'   },
 };
 
-// Roles available in the Staff tab
-const STAFF_ROLES = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'merchandising_team_lead', 'fresh_team_lead', 'viewer'];
-// Roles available in the Merchandisers tab
-const MERCH_ROLES = ['merchandiser'];
-const FRESH_ROLES = ['driver','turnboy','farm_sourcing','market_sourcing'];
+const ROLE_DESCRIPTIONS = {
+  driver:         'Drives the vehicle, leads the field trip',
+  turnboy:        'Vehicle helper / loader on field trips',
+  farm_sourcing:  'Sources produce directly from farms',
+  market_sourcing:'Sources produce from markets',
+  fresh_team_lead:'Manages and monitors fresh produce operations',
+};
 
-// ── User modal (shared for both tabs) ─────────────────────────────────────────
-function UserModal({ open, onClose, user: editUser, onSaved, currentUserRole, defaultRole = 'team_lead' }) {
+const STAFF_ROLES  = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'merchandising_team_lead', 'fresh_team_lead', 'viewer'];
+const MERCH_ROLES  = ['merchandiser'];
+const FRESH_FIELD_ROLES = ['driver', 'turnboy', 'farm_sourcing', 'market_sourcing'];
+
+// ── User modal ─────────────────────────────────────────────────────────────────
+function UserModal({ open, onClose, user: editUser, onSaved, currentUserRole, defaultRole = 'team_lead', availableRoles }) {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     username: '', fullName: '', password: '', role: defaultRole, isActive: true,
@@ -60,13 +64,10 @@ function UserModal({ open, onClose, user: editUser, onSaved, currentUserRole, de
 
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
 
-  // Roles the current user is allowed to assign
-  const assignableRoles = currentUserRole === 'super_admin'
-    ? [...STAFF_ROLES, ...MERCH_ROLES]
-    : [...STAFF_ROLES, ...MERCH_ROLES].filter((r) => !['super_admin', 'admin'].includes(r));
-
   const handleSave = async () => {
     if (!editUser && !form.password) return toast.error('Password required for new users');
+    if (!form.fullName.trim()) return toast.error('Full name required');
+    if (!form.username.trim()) return toast.error('Username required');
     setLoading(true);
     try {
       const payload = { ...form };
@@ -125,8 +126,15 @@ function UserModal({ open, onClose, user: editUser, onSaved, currentUserRole, de
             <Select value={form.role} onValueChange={set('role')}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {assignableRoles.map((r) => (
-                  <SelectItem key={r} value={r}>{ROLE_CONFIG[r]?.label || r}</SelectItem>
+                {(availableRoles || Object.keys(ROLE_CONFIG)).map((r) => (
+                  <SelectItem key={r} value={r}>
+                    <div className="flex flex-col">
+                      <span>{ROLE_CONFIG[r]?.label || r}</span>
+                      {ROLE_DESCRIPTIONS[r] && (
+                        <span className="text-[11px] text-muted-foreground">{ROLE_DESCRIPTIONS[r]}</span>
+                      )}
+                    </div>
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -150,7 +158,7 @@ function UserModal({ open, onClose, user: editUser, onSaved, currentUserRole, de
   );
 }
 
-// ── User table (shared for both tabs) ─────────────────────────────────────────
+// ── User table ─────────────────────────────────────────────────────────────────
 function UserTable({ users, currentUser, onEdit, onDelete }) {
   return (
     <div className="rounded-xl border border-rekker-border overflow-hidden">
@@ -221,6 +229,7 @@ export default function UsersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser]   = useState(null);
   const [defaultRole, setDefaultRole] = useState('team_lead');
+  const [availableRoles, setAvailableRoles] = useState(STAFF_ROLES);
 
   useEffect(() => {
     api.get('/users')
@@ -244,21 +253,32 @@ export default function UsersPage() {
     }
   };
 
-  const openEdit   = (u, dr) => { setDefaultRole(dr || u.role); setEditUser(u);   setModalOpen(true); };
-  const openCreate = (dr)    => { setDefaultRole(dr || 'team_lead'); setEditUser(null); setModalOpen(true); };
+  const openEdit = (u) => {
+    setDefaultRole(u.role);
+    // Allow editing to any relevant role group
+    setAvailableRoles(Object.keys(ROLE_CONFIG));
+    setEditUser(u);
+    setModalOpen(true);
+  };
 
-  // Split into two lists
+  const openCreate = (dr, roles) => {
+    setDefaultRole(dr || 'team_lead');
+    setAvailableRoles(roles || STAFF_ROLES);
+    setEditUser(null);
+    setModalOpen(true);
+  };
+
   const staffUsers       = allUsers.filter((u) => STAFF_ROLES.includes(u.role));
   const merchandiserUsers = allUsers.filter((u) => MERCH_ROLES.includes(u.role));
+  const freshFieldUsers  = allUsers.filter((u) => FRESH_FIELD_ROLES.includes(u.role));
 
   return (
     <div className="space-y-6">
-      {/* Header — button changes based on active tab via state */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="page-title">Users</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage team accounts, roles, and merchandiser profiles
+            Manage team accounts, roles, and field staff profiles
           </p>
         </div>
       </div>
@@ -271,37 +291,26 @@ export default function UsersPage() {
         </div>
       ) : (
         <Tabs defaultValue="staff">
-          <div className="flex items-center justify-between">
-            <TabsList>
-              <TabsTrigger value="staff">
-                Staff ({staffUsers.length})
-              </TabsTrigger>
-              <TabsTrigger value="merchandisers">
-                Merchandisers ({merchandiserUsers.length})
-              </TabsTrigger>
-            </TabsList>
-          </div>
+          <TabsList>
+            <TabsTrigger value="staff">Staff ({staffUsers.length})</TabsTrigger>
+            <TabsTrigger value="merchandisers">Merchandisers ({merchandiserUsers.length})</TabsTrigger>
+            <TabsTrigger value="field">Field Ops ({freshFieldUsers.length})</TabsTrigger>
+          </TabsList>
 
           {/* ── Staff tab ── */}
           <TabsContent value="staff" className="space-y-4">
             <div className="flex justify-end">
-              <Button onClick={() => openCreate('team_lead')}>
+              <Button onClick={() => openCreate('team_lead', STAFF_ROLES)}>
                 <Plus className="w-4 h-4" />
                 New Staff User
               </Button>
             </div>
-
             {staffUsers.length === 0 ? (
               <div className="text-center py-16 border border-dashed border-border rounded-xl">
                 <p className="text-sm text-muted-foreground">No staff users yet.</p>
               </div>
             ) : (
-              <UserTable
-                users={staffUsers}
-                currentUser={currentUser}
-                onEdit={(u) => openEdit(u)}
-                onDelete={handleDelete}
-              />
+              <UserTable users={staffUsers} currentUser={currentUser} onEdit={openEdit} onDelete={handleDelete} />
             )}
           </TabsContent>
 
@@ -311,27 +320,54 @@ export default function UsersPage() {
               <p className="text-xs text-muted-foreground font-mono">
                 Merchandisers appear in the Assignments page when scheduling daily branch visits.
               </p>
-              <Button onClick={() => openCreate('merchandiser')}>
+              <Button onClick={() => openCreate('merchandiser', MERCH_ROLES)}>
                 <Plus className="w-4 h-4" />
                 New Merchandiser
               </Button>
             </div>
-
             {merchandiserUsers.length === 0 ? (
               <div className="text-center py-16 border border-dashed border-border rounded-xl">
                 <p className="text-sm text-muted-foreground">No merchandisers yet.</p>
-                <Button className="mt-4" onClick={() => openCreate('merchandiser')}>
-                  <Plus className="w-4 h-4" />
-                  Add First Merchandiser
+                <Button className="mt-4" onClick={() => openCreate('merchandiser', MERCH_ROLES)}>
+                  <Plus className="w-4 h-4" />Add First Merchandiser
                 </Button>
               </div>
             ) : (
-              <UserTable
-                users={merchandiserUsers}
-                currentUser={currentUser}
-                onEdit={(u) => openEdit(u)}
-                onDelete={handleDelete}
-              />
+              <UserTable users={merchandiserUsers} currentUser={currentUser} onEdit={openEdit} onDelete={handleDelete} />
+            )}
+          </TabsContent>
+
+          {/* ── Field Ops tab ── */}
+          <TabsContent value="field" className="space-y-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <p className="text-xs text-muted-foreground font-mono">
+                  Field ops staff appear in the trip workflow — drivers, helpers, and sourcing personnel.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {FRESH_FIELD_ROLES.map((r) => (
+                    <span key={r} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent/50 border border-border text-[10px] font-mono text-muted-foreground">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+                      {ROLE_CONFIG[r]?.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <Button onClick={() => openCreate('driver', FRESH_FIELD_ROLES)}>
+                <Plus className="w-4 h-4" />
+                New Field User
+              </Button>
+            </div>
+            {freshFieldUsers.length === 0 ? (
+              <div className="text-center py-16 border border-dashed border-border rounded-xl">
+                <p className="text-sm text-muted-foreground">No field ops users yet.</p>
+                <p className="text-xs text-muted-foreground mt-1">Add drivers, helpers, and sourcing staff here.</p>
+                <Button className="mt-4" onClick={() => openCreate('driver', FRESH_FIELD_ROLES)}>
+                  <Plus className="w-4 h-4" />Add First Field User
+                </Button>
+              </div>
+            ) : (
+              <UserTable users={freshFieldUsers} currentUser={currentUser} onEdit={openEdit} onDelete={handleDelete} />
             )}
           </TabsContent>
         </Tabs>
@@ -344,6 +380,7 @@ export default function UsersPage() {
         onSaved={handleSaved}
         currentUserRole={currentUser?.role}
         defaultRole={defaultRole}
+        availableRoles={availableRoles}
       />
     </div>
   );

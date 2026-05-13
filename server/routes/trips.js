@@ -1,4 +1,6 @@
-// server/routes/trips.js
+// server/routes/trips.js — updated
+// Key change: POST /trips/start now accepts `firstDestination` so the initial
+// stage already has a real toLocation instead of 'en_route'.
 
 const express     = require('express');
 const router      = express.Router();
@@ -6,7 +8,7 @@ const TripSession = require('../models/TripSession');
 const TripStage   = require('../models/TripStage');
 const { protect, authorize } = require('../middleware/auth');
 
-const FRESH_ROLES = ['super_admin', 'admin', 'fresh_team_lead', 'team_lead', 'driver', 'turnboy', 'farm_sourcing', 'market_sourcing'];
+const FRESH_ROLES  = ['super_admin', 'admin', 'fresh_team_lead', 'team_lead', 'driver', 'turnboy', 'farm_sourcing', 'market_sourcing'];
 const MANAGE_ROLES = ['super_admin', 'admin', 'fresh_team_lead', 'team_lead'];
 
 const SESSION_POPULATE = [
@@ -16,7 +18,7 @@ const SESSION_POPULATE = [
   { path: 'currentStage' },
 ];
 
-// ── GET /api/trips — list sessions ────────────────────────────────────────────
+// ── GET /api/trips ────────────────────────────────────────────────────────────
 router.get('/', protect, async (req, res) => {
   try {
     const { date, status, driverId } = req.query;
@@ -25,7 +27,6 @@ router.get('/', protect, async (req, res) => {
     if (status)   filter.status = status;
     if (driverId) filter.driver = driverId;
 
-    // Field users only see their own sessions
     const fieldRoles = ['driver', 'turnboy', 'farm_sourcing', 'market_sourcing'];
     if (fieldRoles.includes(req.user.role)) {
       filter.$or = [{ driver: req.user._id }, { helpers: req.user._id }];
@@ -39,14 +40,13 @@ router.get('/', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// ── GET /api/trips/live — active sessions for dashboard ────────────────────────
+// ── GET /api/trips/live ───────────────────────────────────────────────────────
 router.get('/live', protect, async (req, res) => {
   try {
     const sessions = await TripSession.find({ status: 'active' })
       .populate(SESSION_POPULATE)
       .sort({ dayStartTime: 1 });
 
-    // Attach the current stage details for each
     const withStages = await Promise.all(sessions.map(async (s) => {
       const stages = await TripStage.find({ session: s._id }).sort({ createdAt: 1 });
       const activeStage = stages.find((st) => st.status === 'in_transit' || st.status === 'arrived');
@@ -60,7 +60,7 @@ router.get('/live', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// ── GET /api/trips/my-active — current user's active session ───────────────────
+// ── GET /api/trips/my-active ──────────────────────────────────────────────────
 router.get('/my-active', protect, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
@@ -77,7 +77,7 @@ router.get('/my-active', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// ── GET /api/trips/:id — single session with all stages ───────────────────────
+// ── GET /api/trips/:id ────────────────────────────────────────────────────────
 router.get('/:id', protect, async (req, res) => {
   try {
     const session = await TripSession.findById(req.params.id).populate(SESSION_POPULATE);
@@ -87,50 +87,53 @@ router.get('/:id', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// ── POST /api/trips/start — begin a new day / trip session ────────────────────
+// ── POST /api/trips/start ─────────────────────────────────────────────────────
+// NEW: accepts `firstDestination` so the initial stage has a real toLocation
 router.post('/start', protect, async (req, res) => {
   try {
-    const { vehicleId, helperIds, startLocation, lat, lng, notes } = req.body;
+    const { vehicleId, helperIds, startLocation, firstDestination, lat, lng, notes } = req.body;
     if (!vehicleId) return res.status(400).json({ message: 'Vehicle required' });
 
     const today = new Date().toISOString().split('T')[0];
 
-    // Block if vehicle already has an active session today
+    // Prevent duplicate active sessions
     const vehicleActive = await TripSession.findOne({ vehicle: vehicleId, status: 'active', date: today });
     if (vehicleActive) return res.status(400).json({ message: 'This vehicle already has an active session today' });
 
-    // Block if user already in an active session today
     const userActive = await TripSession.findOne({
       $or: [{ driver: req.user._id }, { helpers: req.user._id }],
       status: 'active', date: today,
     });
     if (userActive) return res.status(400).json({ message: 'You already have an active session today' });
 
-    const now = new Date();
+    const now         = new Date();
+    const fromLoc     = startLocation || 'Go-Down';
+    const toLoc       = firstDestination || 'en_route';
+
     const session = await TripSession.create({
-      date: today,
-      vehicle:       vehicleId,
-      driver:        req.user._id,
-      helpers:       helperIds || [],
-      startLocation: startLocation || 'Go-Down',
-      status:        'active',
-      dayStartTime:  now,
-      currentLocation: startLocation || 'Go-Down',
-      createdBy:     req.user._id,
-      notes:         notes || '',
+      date:            today,
+      vehicle:         vehicleId,
+      driver:          req.user._id,
+      helpers:         helperIds || [],
+      startLocation:   fromLoc,
+      status:          'active',
+      dayStartTime:    now,
+      currentLocation: fromLoc,
+      createdBy:       req.user._id,
+      notes:           notes || '',
     });
 
-    // Create the initial checkout stage (Go-Down checkout)
+    // Create the first transit stage with the real destination
     const initialStage = await TripStage.create({
-      session:      session._id,
-      fromLocation: startLocation || 'Go-Down',
-      toLocation:   'en_route', // will be set when user selects next destination
-      stageType:    'checkout',
-      checkOutTime:     now,
-      checkOutLocation: { lat: lat || null, lng: lng || null },
+      session:           session._id,
+      fromLocation:      fromLoc,
+      toLocation:        toLoc,
+      stageType:         'checkout',
+      checkOutTime:      now,
+      checkOutLocation:  { lat: lat || null, lng: lng || null },
       checkOutGpsStatus: lat ? 'valid' : 'unavailable',
-      status:    'in_transit',
-      loggedBy:  req.user._id,
+      status:            'in_transit',
+      loggedBy:          req.user._id,
     });
 
     session.currentStage = initialStage._id;
@@ -141,7 +144,7 @@ router.post('/start', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// ── POST /api/trips/:id/arrive — check in at a destination ────────────────────
+// ── POST /api/trips/:id/arrive ────────────────────────────────────────────────
 router.post('/:id/arrive', protect, async (req, res) => {
   try {
     const { location, lat, lng, notes, isOffline } = req.body;
@@ -155,13 +158,13 @@ router.post('/:id/arrive', protect, async (req, res) => {
     const activeStage = await TripStage.findById(session.currentStage);
 
     if (activeStage && activeStage.status === 'in_transit') {
-      activeStage.toLocation        = location;
-      activeStage.checkInTime       = now;
-      activeStage.checkInLocation   = { lat: lat || null, lng: lng || null };
-      activeStage.checkInGpsStatus  = lat ? 'valid' : 'unavailable';
-      activeStage.status            = 'arrived';
-      activeStage.isOfflineEntry    = !!isOffline;
-      if (notes) activeStage.notes  = notes;
+      activeStage.toLocation       = location;
+      activeStage.checkInTime      = now;
+      activeStage.checkInLocation  = { lat: lat || null, lng: lng || null };
+      activeStage.checkInGpsStatus = lat ? 'valid' : 'unavailable';
+      activeStage.status           = 'arrived';
+      activeStage.isOfflineEntry   = !!isOffline;
+      if (notes) activeStage.notes = notes;
       if (activeStage.checkOutTime) {
         activeStage.durationMinutes = Math.round((now - new Date(activeStage.checkOutTime)) / 60000);
       }
@@ -177,7 +180,7 @@ router.post('/:id/arrive', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// ── POST /api/trips/:id/depart — check out from current location ───────────────
+// ── POST /api/trips/:id/depart ────────────────────────────────────────────────
 router.post('/:id/depart', protect, async (req, res) => {
   try {
     const { nextLocation, lat, lng, notes, isOffline } = req.body;
@@ -187,7 +190,6 @@ router.post('/:id/depart', protect, async (req, res) => {
     if (!session || session.status !== 'active')
       return res.status(400).json({ message: 'No active session' });
 
-    // Mark current stage as completed
     const currentStage = await TripStage.findById(session.currentStage);
     if (currentStage && currentStage.status === 'arrived') {
       currentStage.status = 'completed';
@@ -195,24 +197,22 @@ router.post('/:id/depart', protect, async (req, res) => {
     }
 
     const now = new Date();
-
-    // Create the new transit stage
     const newStage = await TripStage.create({
-      session:          session._id,
-      fromLocation:     session.currentLocation,
-      toLocation:       nextLocation,
-      stageType:        'transit',
-      checkOutTime:     now,
-      checkOutLocation: { lat: lat || null, lng: lng || null },
+      session:           session._id,
+      fromLocation:      session.currentLocation,
+      toLocation:        nextLocation,
+      stageType:         'transit',
+      checkOutTime:      now,
+      checkOutLocation:  { lat: lat || null, lng: lng || null },
       checkOutGpsStatus: lat ? 'valid' : 'unavailable',
-      status:           'in_transit',
-      loggedBy:         req.user._id,
-      notes:            notes || '',
-      isOfflineEntry:   !!isOffline,
+      status:            'in_transit',
+      loggedBy:          req.user._id,
+      notes:             notes || '',
+      isOfflineEntry:    !!isOffline,
     });
 
-    session.currentStage    = newStage._id;
-    session.totalStages     = (session.totalStages || 0) + 1;
+    session.currentStage = newStage._id;
+    session.totalStages  = (session.totalStages || 0) + 1;
     await session.save();
 
     const stages = await TripStage.find({ session: session._id }).sort({ createdAt: 1 });
@@ -221,7 +221,7 @@ router.post('/:id/depart', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// ── POST /api/trips/:id/delay — log a delay on the current stage ──────────────
+// ── POST /api/trips/:id/delay ─────────────────────────────────────────────────
 router.post('/:id/delay', protect, async (req, res) => {
   try {
     const { category, notes, durationMin } = req.body;
@@ -242,7 +242,7 @@ router.post('/:id/delay', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// ── POST /api/trips/:id/end — end the day ─────────────────────────────────────
+// ── POST /api/trips/:id/end ───────────────────────────────────────────────────
 router.post('/:id/end', protect, async (req, res) => {
   try {
     const { lat, lng, notes } = req.body;
@@ -251,8 +251,6 @@ router.post('/:id/end', protect, async (req, res) => {
       return res.status(400).json({ message: 'No active session' });
 
     const now = new Date();
-
-    // Complete the current stage
     const currentStage = await TripStage.findById(session.currentStage);
     if (currentStage && currentStage.status !== 'completed') {
       currentStage.checkInTime     = currentStage.checkInTime || now;
@@ -264,7 +262,7 @@ router.post('/:id/end', protect, async (req, res) => {
       await currentStage.save();
     }
 
-    const stages = await TripStage.find({ session: session._id });
+    const stages       = await TripStage.find({ session: session._id });
     const totalDuration = session.dayStartTime
       ? Math.round((now - new Date(session.dayStartTime)) / 60000)
       : null;
@@ -292,20 +290,16 @@ router.get('/reports/summary', protect, authorize(...MANAGE_ROLES), async (req, 
       if (end)   filter.date.$lte = end;
     }
 
-    const [sessions, stages] = await Promise.all([
-      TripSession.find(filter).populate('vehicle driver'),
-      TripStage.find({ session: { $in: (await TripSession.find(filter).select('_id')).map(s => s._id) } }),
-    ]);
-
+    const sessions = await TripSession.find(filter).populate('vehicle driver');
     const completed = sessions.filter(s => s.status === 'completed');
     const avgDuration = completed.length
       ? Math.round(completed.reduce((a, s) => a + (s.totalDurationMinutes || 0), 0) / completed.length)
       : 0;
 
     res.json({
-      totalSessions:   sessions.length,
-      activeSessions:  sessions.filter(s => s.status === 'active').length,
-      completedSessions: completed.length,
+      totalSessions:      sessions.length,
+      activeSessions:     sessions.filter(s => s.status === 'active').length,
+      completedSessions:  completed.length,
       avgDurationMinutes: avgDuration,
       totalDelayMinutes:  sessions.reduce((a, s) => a + (s.totalDelayMinutes || 0), 0),
       sessions,

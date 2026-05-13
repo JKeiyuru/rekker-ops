@@ -1,25 +1,29 @@
 // client/src/pages/fresh/TripWorkflow.jsx
 // The guided step-by-step mobile workflow for drivers/field staff.
-// Follows the principle: "The system guides users, not the other way around."
+// "The system guides users, not the other way around."
+// Destinations now include both fixed operational locations AND branches from the DB.
 
 import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import {
   Truck, Play, MapPin, ArrowRight, LogOut, Loader2,
-  AlertTriangle, Plus, CheckCircle2, Clock, Users, X,
+  AlertTriangle, CheckCircle2, Users, ChevronDown, Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import RouteTimeline from '@/components/fresh/RouteTimeline';
+import PWAInstallBanner from '@/components/PWAInstallBanner';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 
-const LOCATIONS = ['Go-Down', 'Market', 'Farm', 'DC', 'Warehouse', 'Other'];
+// ── Fixed operational locations always available ──────────────────────────────
+const FIXED_LOCATIONS = ['Go-Down', 'Farm', 'DC', 'Warehouse'];
 
 const DELAY_CATEGORIES = [
   { value: 'traffic',          label: 'Traffic'              },
@@ -32,6 +36,7 @@ const DELAY_CATEGORIES = [
   { value: 'other',            label: 'Other'                },
 ];
 
+// ── GPS hook ──────────────────────────────────────────────────────────────────
 function useGPS() {
   const capture = useCallback(() => new Promise((resolve) => {
     if (!navigator.geolocation) return resolve({ lat: null, lng: null });
@@ -44,18 +49,115 @@ function useGPS() {
   return { capture };
 }
 
+// ── Destination picker — fixed locations + branches from DB ───────────────────
+function DestinationPicker({ value, onChange, excludeLocation = '', branches = [], label = 'Where are you going next?' }) {
+  const [search, setSearch] = useState('');
+
+  // Merge fixed + branch locations, deduplicate, exclude current location
+  const allOptions = [
+    ...FIXED_LOCATIONS,
+    ...branches.map((b) => b.name),
+  ].filter((loc, idx, arr) =>
+    arr.indexOf(loc) === idx && loc !== excludeLocation
+  );
+
+  const filtered = search.trim()
+    ? allOptions.filter((l) => l.toLowerCase().includes(search.toLowerCase()))
+    : allOptions;
+
+  const fixedFiltered    = filtered.filter((l) => FIXED_LOCATIONS.includes(l));
+  const branchFiltered   = filtered.filter((l) => !FIXED_LOCATIONS.includes(l));
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-foreground text-center">{label}</p>
+
+      {/* Search — only show if more than 6 options */}
+      {allOptions.length > 6 && (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <Input
+            placeholder="Search location…"
+            className="pl-9 h-8 text-sm"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      )}
+
+      {/* Fixed locations */}
+      {fixedFiltered.length > 0 && (
+        <div className="space-y-1.5">
+          {allOptions.length > FIXED_LOCATIONS.length && (
+            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider px-1">Operational</p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            {fixedFiltered.map((loc) => (
+              <button key={loc} type="button"
+                onClick={() => onChange(loc)}
+                className={cn(
+                  'py-3 rounded-xl border text-sm font-medium transition-all',
+                  value === loc
+                    ? 'border-primary bg-primary/15 text-primary'
+                    : 'border-border bg-background text-foreground hover:border-primary/50'
+                )}>
+                {loc}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Branch locations */}
+      {branchFiltered.length > 0 && (
+        <div className="space-y-1.5">
+          {allOptions.length > FIXED_LOCATIONS.length && (
+            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider px-1">Markets & Branches</p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            {branchFiltered.map((loc) => (
+              <button key={loc} type="button"
+                onClick={() => onChange(loc)}
+                className={cn(
+                  'py-3 rounded-xl border text-sm font-medium transition-all text-left px-3',
+                  value === loc
+                    ? 'border-primary bg-primary/15 text-primary'
+                    : 'border-border bg-background text-foreground hover:border-primary/50'
+                )}>
+                <MapPin className="w-3.5 h-3.5 inline mr-1.5 opacity-60" />
+                {loc}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 && (
+        <p className="text-xs text-muted-foreground text-center py-4">No locations match your search.</p>
+      )}
+    </div>
+  );
+}
+
 // ── Start Day Modal ───────────────────────────────────────────────────────────
-function StartDayModal({ open, onClose, onStarted }) {
+function StartDayModal({ open, onClose, onStarted, branches }) {
   const [vehicles, setVehicles]   = useState([]);
   const [users, setUsers]         = useState([]);
   const [vehicleId, setVehicleId] = useState('');
   const [helperIds, setHelperIds] = useState([]);
   const [startLoc, setStartLoc]   = useState('Go-Down');
+  const [firstDest, setFirstDest] = useState('');  // first destination
   const [loading, setLoading]     = useState(false);
+  const [step, setStep]           = useState(1);    // 1=team setup, 2=first destination
   const { capture } = useGPS();
 
   useEffect(() => {
     if (open) {
+      setStep(1);
+      setVehicleId('');
+      setHelperIds([]);
+      setStartLoc('Go-Down');
+      setFirstDest('');
       api.get('/vehicles').then(r => setVehicles(r.data || []));
       api.get('/users').then(r => {
         const fieldRoles = ['driver','turnboy','farm_sourcing','market_sourcing','fresh_team_lead'];
@@ -69,10 +171,18 @@ function StartDayModal({ open, onClose, onStarted }) {
 
   const handleStart = async () => {
     if (!vehicleId) return toast.error('Select a vehicle');
+    if (!firstDest) return toast.error('Select your first destination');
     setLoading(true);
     const { lat, lng } = await capture();
     try {
-      const res = await api.post('/trips/start', { vehicleId, helperIds, startLocation: startLoc, lat, lng });
+      const res = await api.post('/trips/start', {
+        vehicleId,
+        helperIds,
+        startLocation: startLoc,
+        firstDestination: firstDest,
+        lat,
+        lng,
+      });
       toast.success('Day started!');
       onStarted(res.data);
       onClose();
@@ -83,64 +193,89 @@ function StartDayModal({ open, onClose, onStarted }) {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Start Day</DialogTitle>
-          <DialogDescription>Select your vehicle and team before heading out.</DialogDescription>
+          <DialogDescription>
+            {step === 1 ? 'Select your vehicle and team.' : 'Where are you heading first?'}
+          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 mt-2">
-          <div className="space-y-1.5">
-            <Label>Vehicle</Label>
-            <Select value={vehicleId} onValueChange={setVehicleId}>
-              <SelectTrigger><SelectValue placeholder="Select vehicle…" /></SelectTrigger>
-              <SelectContent>
-                {vehicles.map(v => (
-                  <SelectItem key={v._id} value={v._id}>
-                    {v.regNumber}{v.description ? ` — ${v.description}` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
 
-          <div className="space-y-1.5">
-            <Label>Starting Location</Label>
-            <Select value={startLoc} onValueChange={setStartLoc}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {LOCATIONS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
+        {step === 1 && (
+          <div className="space-y-4 mt-2">
+            <div className="space-y-1.5">
+              <Label>Vehicle</Label>
+              <Select value={vehicleId} onValueChange={setVehicleId}>
+                <SelectTrigger><SelectValue placeholder="Select vehicle…" /></SelectTrigger>
+                <SelectContent>
+                  {vehicles.map(v => (
+                    <SelectItem key={v._id} value={v._id}>
+                      {v.regNumber}{v.description ? ` — ${v.description}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="space-y-1.5">
-            <Label>Team Members <span className="text-muted-foreground font-normal">(select helpers)</span></Label>
-            <div className="flex flex-wrap gap-2 p-3 rounded-lg border border-border bg-accent/20 min-h-[44px]">
-              {users.map(u => {
-                const sel = helperIds.includes(u._id);
-                return (
-                  <button key={u._id} type="button" onClick={() => toggleHelper(u._id)}
-                    className={cn(
-                      'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
-                      sel ? 'bg-primary/15 border-primary/40 text-primary'
-                          : 'bg-background border-border text-muted-foreground hover:text-foreground'
-                    )}>
-                    {u.fullName}
-                  </button>
-                );
-              })}
-              {users.length === 0 && <p className="text-xs text-muted-foreground">No field staff found</p>}
+            <div className="space-y-1.5">
+              <Label>Starting From</Label>
+              <Select value={startLoc} onValueChange={setStartLoc}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {FIXED_LOCATIONS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Team Members <span className="text-muted-foreground font-normal">(select all on this trip)</span></Label>
+              <div className="flex flex-wrap gap-2 p-3 rounded-lg border border-border bg-accent/20 min-h-[44px]">
+                {users.map(u => {
+                  const sel = helperIds.includes(u._id);
+                  return (
+                    <button key={u._id} type="button" onClick={() => toggleHelper(u._id)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                        sel ? 'bg-primary/15 border-primary/40 text-primary'
+                            : 'bg-background border-border text-muted-foreground hover:text-foreground'
+                      )}>
+                      {u.fullName}
+                    </button>
+                  );
+                })}
+                {users.length === 0 && <p className="text-xs text-muted-foreground">No field staff found. Add them in Users → Field Ops.</p>}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+              <Button className="flex-1" onClick={() => setStep(2)} disabled={!vehicleId}>
+                Next: Destination
+                <ArrowRight className="w-4 h-4" />
+              </Button>
             </div>
           </div>
+        )}
 
-          <div className="flex gap-2 pt-1">
-            <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-            <Button className="flex-1" onClick={handleStart} disabled={loading}>
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-              Start Day
-            </Button>
+        {step === 2 && (
+          <div className="space-y-4 mt-2">
+            <DestinationPicker
+              value={firstDest}
+              onChange={setFirstDest}
+              excludeLocation={startLoc}
+              branches={branches}
+              label="Where are you heading first?"
+            />
+
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>Back</Button>
+              <Button className="flex-1" onClick={handleStart} disabled={loading || !firstDest}>
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                Start Day
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -186,8 +321,7 @@ function DelayModal({ open, onClose, sessionId, onLogged }) {
           </div>
           <div className="space-y-1.5">
             <Label>Duration (minutes) <span className="text-muted-foreground font-normal">(optional)</span></Label>
-            <input type="number" min="0" placeholder="e.g. 30"
-              className="flex h-9 w-full rounded-md border border-input bg-input px-3 py-1 text-sm"
+            <Input type="number" min="0" placeholder="e.g. 30"
               value={duration} onChange={e => setDuration(e.target.value)} />
           </div>
           <div className="space-y-1.5">
@@ -210,17 +344,25 @@ function DelayModal({ open, onClose, sessionId, onLogged }) {
 // ── Main Workflow Page ────────────────────────────────────────────────────────
 export default function TripWorkflow() {
   const { user } = useAuthStore();
-  const [session, setSession]       = useState(null);
-  const [stages, setStages]         = useState([]);
-  const [loading, setLoading]       = useState(true);
+  const [session, setSession]           = useState(null);
+  const [stages, setStages]             = useState([]);
+  const [branches, setBranches]         = useState([]);
+  const [loading, setLoading]           = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [startOpen, setStartOpen]   = useState(false);
-  const [delayOpen, setDelayOpen]   = useState(false);
-  const [nextDest, setNextDest]     = useState('');
-  const [endConfirm, setEndConfirm] = useState(false);
+  const [startOpen, setStartOpen]       = useState(false);
+  const [delayOpen, setDelayOpen]       = useState(false);
+  const [nextDest, setNextDest]         = useState('');
+  const [endConfirm, setEndConfirm]     = useState(false);
   const { capture } = useGPS();
 
   const activeStage = stages.find(s => s.status === 'in_transit' || s.status === 'arrived');
+
+  // Load branches for destination picker
+  useEffect(() => {
+    api.get('/branches')
+      .then(r => setBranches(Array.isArray(r.data) ? r.data : []))
+      .catch(() => {});
+  }, []);
 
   const fetchSession = useCallback(async () => {
     try {
@@ -233,7 +375,6 @@ export default function TripWorkflow() {
 
   useEffect(() => { fetchSession(); }, [fetchSession]);
 
-  // Auto-refresh every 30s while active
   useEffect(() => {
     if (!session) return;
     const t = setInterval(fetchSession, 30000);
@@ -290,13 +431,16 @@ export default function TripWorkflow() {
   // ── No active session ──
   if (!session) {
     return (
-      <div className="max-w-sm mx-auto space-y-6 pt-6">
+      <div className="max-w-sm mx-auto space-y-4 pt-6">
         <div>
           <h1 className="page-title">Field Ops</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Good {new Date().getHours() < 12 ? 'morning' : 'afternoon'}, {user?.fullName?.split(' ')[0]}
           </p>
         </div>
+
+        {/* PWA install prompt — field users benefit most from offline access */}
+        <PWAInstallBanner />
 
         <div className="rounded-2xl border border-rekker-border bg-rekker-surface p-6 text-center space-y-4">
           <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
@@ -314,8 +458,12 @@ export default function TripWorkflow() {
           </Button>
         </div>
 
-        <StartDayModal open={startOpen} onClose={() => setStartOpen(false)}
-          onStarted={(s) => { setSession(s); setStages(s.stages || []); }} />
+        <StartDayModal
+          open={startOpen}
+          onClose={() => setStartOpen(false)}
+          onStarted={(s) => { setSession(s); setStages(s.stages || []); }}
+          branches={branches}
+        />
       </div>
     );
   }
@@ -337,6 +485,14 @@ export default function TripWorkflow() {
           <p className="text-xs text-muted-foreground">{session.driver?.fullName}</p>
         </div>
       </div>
+
+      {/* Helpers */}
+      {session.helpers?.length > 0 && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono px-1">
+          <Users className="w-3.5 h-3.5" />
+          {session.helpers.map(h => h.fullName).join(', ')}
+        </div>
+      )}
 
       {/* Current status card */}
       <div className={cn(
@@ -376,21 +532,12 @@ export default function TripWorkflow() {
         {/* Action: Arrived → select next destination */}
         {isArrived && (
           <div className="space-y-3">
-            <p className="text-sm font-medium text-foreground text-center">Where are you going next?</p>
-            <div className="grid grid-cols-2 gap-2">
-              {LOCATIONS.filter(l => l !== session.currentLocation).map(loc => (
-                <button key={loc} type="button"
-                  onClick={() => setNextDest(loc)}
-                  className={cn(
-                    'py-3 rounded-xl border text-sm font-medium transition-all',
-                    nextDest === loc
-                      ? 'border-primary bg-primary/15 text-primary'
-                      : 'border-border bg-background text-foreground hover:border-primary/50'
-                  )}>
-                  {loc}
-                </button>
-              ))}
-            </div>
+            <DestinationPicker
+              value={nextDest}
+              onChange={setNextDest}
+              excludeLocation={session.currentLocation}
+              branches={branches}
+            />
             {nextDest && (
               <Button size="lg" className="w-full text-base" onClick={handleDepart} disabled={actionLoading}>
                 {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
@@ -439,7 +586,7 @@ export default function TripWorkflow() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>End Day?</DialogTitle>
-            <DialogDescription>This will close today's trip session. Make sure you're back at the base.</DialogDescription>
+            <DialogDescription>This will close today's trip session. Make sure you're back at base.</DialogDescription>
           </DialogHeader>
           <div className="flex gap-2 mt-4">
             <Button variant="outline" className="flex-1" onClick={() => setEndConfirm(false)}>Cancel</Button>
