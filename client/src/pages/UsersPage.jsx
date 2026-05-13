@@ -29,13 +29,19 @@ const ROLE_CONFIG = {
   admin:        { label: 'Admin',        variant: 'warning'   },
   team_lead:    { label: 'Team Lead',    variant: 'secondary' },
   merchandiser: { label: 'Merchandiser', variant: 'default'   },
+  fresh_team_lead:          { label: 'Fresh Lead',    variant: 'default'   },
+  driver:                   { label: 'Driver',        variant: 'secondary' },
+  turnboy:                  { label: 'Turnboy',       variant: 'secondary' },
+  farm_sourcing:            { label: 'Farm Sourcing', variant: 'secondary' },
+  market_sourcing:          { label: 'Market Sourcing', variant: 'secondary' },
   viewer:       { label: 'Viewer',       variant: 'outline'   },
 };
 
 // Roles available in the Staff tab
-const STAFF_ROLES = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'merchandising_team_lead', 'viewer'];
+const STAFF_ROLES = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'merchandising_team_lead', 'fresh_team_lead', 'viewer'];
 // Roles available in the Merchandisers tab
 const MERCH_ROLES = ['merchandiser'];
+const FRESH_ROLES = ['driver','turnboy','farm_sourcing','market_sourcing'];
 
 // ── User modal (shared for both tabs) ─────────────────────────────────────────
 function UserModal({ open, onClose, user: editUser, onSaved, currentUserRole, defaultRole = 'team_lead' }) {
