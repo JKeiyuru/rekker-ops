@@ -1,48 +1,37 @@
 // server/models/User.js
 
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const bcrypt   = require('bcryptjs');
 
 const userSchema = new mongoose.Schema(
   {
-    username: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true,
-      lowercase: true,
-    },
-    fullName: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    password: {
-      type: String,
-      required: true,
-      minlength: 6,
-    },
+    username: { type: String, required: true, unique: true, trim: true, lowercase: true },
+    fullName: { type: String, required: true, trim: true },
+    password: { type: String, required: true, minlength: 6 },
     role: {
       type: String,
       enum: [
         'super_admin',
         'admin',
-        'packaging_team_lead',    // sees LPO + Invoice workflow only
-        'merchandising_team_lead', // sees Merchandising module only
-        'team_lead',              // legacy: sees everything
-        'merchandiser',           // sees own check-in dashboard only
+        // Packaging
+        'packaging_team_lead',
+        // Merchandising
+        'merchandising_team_lead',
+        'merchandiser',
+        // Fresh Produce
+        'fresh_team_lead',
+        'driver',
+        'turnboy',
+        'farm_sourcing',
+        'market_sourcing',
+        // Legacy / cross-module
+        'team_lead',
         'viewer',
       ],
       default: 'viewer',
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
+    isActive:  { type: Boolean, default: true },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }
 );
@@ -53,8 +42,8 @@ userSchema.pre('save', async function (next) {
   next();
 });
 
-userSchema.methods.comparePassword = async function (candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.password);
+userSchema.methods.comparePassword = async function (candidate) {
+  return bcrypt.compare(candidate, this.password);
 };
 
 userSchema.methods.toJSON = function () {
