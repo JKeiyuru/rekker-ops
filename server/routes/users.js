@@ -6,7 +6,25 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 
-// GET /api/users - Super Admin & Admin
+const ALL_ROLES = [
+  'super_admin',
+  'admin',
+  'team_lead',
+  'viewer',
+  // Packaging
+  'packaging_team_lead',
+  // Merchandising
+  'merchandising_team_lead',
+  'merchandiser',
+  // Fresh Produce
+  'fresh_team_lead',
+  'driver',
+  'turnboy',
+  'farm_sourcing',
+  'market_sourcing',
+];
+
+// GET /api/users
 router.get('/', protect, authorize('super_admin', 'admin'), async (req, res) => {
   try {
     const users = await User.find().select('-password').sort({ createdAt: -1 });
@@ -16,7 +34,7 @@ router.get('/', protect, authorize('super_admin', 'admin'), async (req, res) => 
   }
 });
 
-// POST /api/users - Create user
+// POST /api/users
 router.post(
   '/',
   protect,
@@ -25,7 +43,7 @@ router.post(
     body('username').trim().notEmpty().withMessage('Username required'),
     body('fullName').trim().notEmpty().withMessage('Full name required'),
     body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-    body('role').isIn(['super_admin','admin','packaging_team_lead','merchandising_team_lead','team_lead','merchandiser','viewer']).withMessage('Invalid role'),
+    body('role').isIn(ALL_ROLES).withMessage('Invalid role'),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -34,7 +52,6 @@ router.post(
     try {
       const { username, fullName, password, role } = req.body;
 
-      // Admins cannot create super_admin or admin
       if (req.user.role === 'admin' && ['super_admin', 'admin'].includes(role)) {
         return res.status(403).json({ message: 'Admins cannot assign super_admin or admin roles' });
       }
@@ -68,10 +85,14 @@ router.put('/:id', protect, authorize('super_admin', 'admin'), async (req, res) 
       return res.status(403).json({ message: 'Admins cannot assign super_admin or admin roles' });
     }
 
-    if (fullName) user.fullName = fullName;
-    if (role) user.role = role;
+    if (role && !ALL_ROLES.includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+
+    if (fullName)                   user.fullName = fullName;
+    if (role)                       user.role     = role;
     if (typeof isActive === 'boolean') user.isActive = isActive;
-    if (password) user.password = password;
+    if (password)                   user.password = password;
 
     await user.save();
     res.json(user.toJSON());
@@ -80,7 +101,7 @@ router.put('/:id', protect, authorize('super_admin', 'admin'), async (req, res) 
   }
 });
 
-// DELETE /api/users/:id - Super Admin only
+// DELETE /api/users/:id
 router.delete('/:id', protect, authorize('super_admin'), async (req, res) => {
   try {
     if (req.params.id === req.user._id.toString()) {
