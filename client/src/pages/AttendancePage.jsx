@@ -1,11 +1,13 @@
 // client/src/pages/AttendancePage.jsx
+// Updated to show all check-ins regardless of assignment.
+// Assignments are optional scheduling tools — not a gate.
 
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import {
   Users, CheckCircle2, XCircle, AlertTriangle, Clock,
   CalendarDays, Loader2, Navigation, WifiOff, RefreshCw,
-  Download,
+  Download, Star,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +19,6 @@ import api from '@/lib/api';
 
 const TODAY = new Date().toISOString().split('T')[0];
 
-// ── Status configs ────────────────────────────────────────────────────────────
 const SESSION_STATUS_UI = {
   ACTIVE:     { label: 'Active',     variant: 'default'     },
   COMPLETE:   { label: 'Complete',   variant: 'success'     },
@@ -32,9 +33,6 @@ const CHECKIN_STATUS_UI = {
   OFFLINE:           { label: 'Offline',        color: 'text-blue-400'    },
 };
 
-// ── Late indicator ────────────────────────────────────────────────────────────
-// Grace period: 0–10 min = green/on-time, 11–30 = amber/late,
-// >30 = red/very late, negative = early (green)
 function LateCell({ lateByMinutes, expectedCheckIn }) {
   if (!expectedCheckIn) return <span className="text-muted-foreground/40 text-xs">—</span>;
   if (lateByMinutes == null) return <span className="text-muted-foreground/40 text-xs">—</span>;
@@ -61,7 +59,7 @@ function LateCell({ lateByMinutes, expectedCheckIn }) {
   );
 }
 
-function StatCard({ icon: Icon, label, value, color = 'text-primary', bg = 'bg-primary/10' }) {
+function StatCard({ icon: Icon, label, value, color = 'text-primary', bg = 'bg-primary/10', sub }) {
   return (
     <div className="rounded-xl border border-rekker-border bg-rekker-surface p-4 flex items-start gap-3">
       <div className={cn('flex items-center justify-center w-9 h-9 rounded-lg shrink-0', bg)}>
@@ -70,12 +68,13 @@ function StatCard({ icon: Icon, label, value, color = 'text-primary', bg = 'bg-p
       <div>
         <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider leading-none">{label}</p>
         <p className="text-3xl font-display tracking-wider text-foreground mt-1">{value ?? '—'}</p>
+        {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
       </div>
     </div>
   );
 }
 
-// ── Daily tab ─────────────────────────────────────────────────────────────────
+// ── Daily Tab ─────────────────────────────────────────────────────────────────
 function DailyTab() {
   const [date, setDate]       = useState(TODAY);
   const [summary, setSummary] = useState(null);
@@ -92,21 +91,17 @@ function DailyTab() {
 
   const handleExportPDF = () => {
     if (!summary) return;
-    exportAttendancePDF({
-      date,
-      sessions:    summary.sessions || [],
-      assignments: summary.assignments || [],
-      summary,
-    });
+    exportAttendancePDF({ date, sessions: summary.sessions || [], assignments: summary.assignments || [], summary });
   };
 
   const handleExportCSV = () => {
     if (!summary?.sessions?.length) return;
-    const headers = ['Merchandiser', 'Branch', 'Expected', 'Check-In', 'Late (min)', 'Check-Out', 'Duration', 'Distance (m)', 'Status'];
+    const headers = ['Merchandiser', 'Branch', 'Scheduled', 'Type', 'Check-In', 'Late (min)', 'Check-Out', 'Duration', 'Distance (m)', 'Status'];
     const rows = summary.sessions.map((s) => [
       s.merchandiser?.fullName || '',
       s.branch?.name || '',
       s.expectedCheckIn || '',
+      s.notes === 'Unscheduled visit' ? 'Unscheduled' : 'Scheduled',
       s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '',
       s.lateByMinutes ?? '',
       s.checkOutTime ? format(new Date(s.checkOutTime), 'HH:mm') : '',
@@ -123,6 +118,7 @@ function DailyTab() {
 
   return (
     <div className="space-y-5">
+      {/* Controls */}
       <div className="flex items-center gap-3 flex-wrap">
         <CalendarDays className="w-4 h-4 text-muted-foreground" />
         <Input type="date" className="h-8 w-44 text-sm" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -144,61 +140,125 @@ function DailyTab() {
         <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
       ) : (
         <>
+          {/* Stats — now centred on actual check-ins, not assignments */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={Users}         label="Assigned"     value={summary?.totalAssigned}      />
-            <StatCard icon={CheckCircle2}  label="Checked In"   value={summary?.totalCheckedIn}     color="text-emerald-400" bg="bg-emerald-500/10" />
-            <StatCard icon={XCircle}       label="Absent"       value={summary?.totalAbsent}        color="text-destructive"  bg="bg-destructive/10" />
-            <StatCard icon={AlertTriangle} label="Flagged"      value={summary?.flaggedSessions}    color="text-amber-400"  bg="bg-amber-500/10"  />
+            <StatCard
+              icon={Users}
+              label="Total Check-Ins"
+              value={summary?.totalSessions}
+              sub="all check-ins today"
+            />
+            <StatCard
+              icon={CheckCircle2}
+              label="Completed"
+              value={summary?.completeSessions}
+              sub="checked out"
+              color="text-emerald-400"
+              bg="bg-emerald-500/10"
+            />
+            <StatCard
+              icon={Star}
+              label="Unscheduled"
+              value={summary?.unscheduledCheckins}
+              sub="no prior assignment"
+              color="text-amber-400"
+              bg="bg-amber-500/10"
+            />
+            <StatCard
+              icon={AlertTriangle}
+              label="Flagged"
+              value={summary?.flaggedSessions}
+              sub="location mismatch"
+              color="text-destructive"
+              bg="bg-destructive/10"
+            />
           </div>
 
+          {/* Assignment-based summary (if assignments exist) */}
+          {summary?.totalAssigned > 0 && (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <p className="text-xs font-mono text-primary uppercase tracking-wider mb-2">Scheduled Visits Summary</p>
+              <div className="flex gap-6 text-sm">
+                <div>
+                  <span className="text-muted-foreground text-xs">Assigned</span>
+                  <p className="font-display text-2xl tracking-wider text-foreground">{summary.totalAssigned}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground text-xs">Checked in</span>
+                  <p className="font-display text-2xl tracking-wider text-emerald-400">{summary.totalCheckedIn}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground text-xs">Absent</span>
+                  <p className="font-display text-2xl tracking-wider text-destructive">{summary.totalAbsent}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sessions table */}
           {summary?.sessions?.length > 0 ? (
             <div className="overflow-x-auto rounded-xl border border-rekker-border">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-rekker-border bg-rekker-surface">
-                    {['Merchandiser', 'Branch', 'Expected', 'Check-In', 'Timeliness', 'Check-Out', 'Duration', 'Distance', 'Status', 'Flags'].map((h) => (
+                    {['Merchandiser', 'Branch', 'Type', 'Expected', 'Check-In', 'Timeliness', 'Check-Out', 'Duration', 'Distance', 'Status', 'Flags'].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.sessions.map((s, i) => (
-                    <tr key={s._id} className={`border-b border-rekker-border/50 hover:bg-accent/20 transition-colors ${i % 2 !== 0 ? 'bg-rekker-surface/20' : ''}`}>
-                      <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{s.merchandiser?.fullName}</td>
-                      <td className="px-4 py-3 text-foreground">{s.branch?.name}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.expectedCheckIn || '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '—'}</td>
-                      <td className="px-4 py-3"><LateCell lateByMinutes={s.lateByMinutes} expectedCheckIn={s.expectedCheckIn} /></td>
-                      <td className="px-4 py-3 font-mono text-xs">{s.checkOutTime ? format(new Date(s.checkOutTime), 'HH:mm') : '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{s.durationMinutes != null ? `${s.durationMinutes}m` : '—'}</td>
-                      <td className="px-4 py-3">
-                        {s.checkInDistanceMeters != null ? (
-                          <span className={cn('font-mono text-xs flex items-center gap-1', s.checkInDistanceMeters > (s.branch?.allowedRadius || 100) ? 'text-destructive' : 'text-emerald-400')}>
-                            <Navigation className="w-3 h-3" />{s.checkInDistanceMeters}m
-                          </span>
-                        ) : <span className="text-muted-foreground text-xs">—</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant={SESSION_STATUS_UI[s.sessionStatus]?.variant || 'pending'}>
-                          {SESSION_STATUS_UI[s.sessionStatus]?.label || s.sessionStatus}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-1 flex-wrap">
-                          {s.checkInStatus !== 'VALID' && (
-                            <span className={cn('text-[10px] font-mono', CHECKIN_STATUS_UI[s.checkInStatus]?.color)}>
-                              {CHECKIN_STATUS_UI[s.checkInStatus]?.label}
+                  {summary.sessions.map((s, i) => {
+                    const isUnscheduled = s.notes === 'Unscheduled visit';
+                    return (
+                      <tr key={s._id} className={`border-b border-rekker-border/50 hover:bg-accent/20 transition-colors ${i % 2 !== 0 ? 'bg-rekker-surface/20' : ''}`}>
+                        <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{s.merchandiser?.fullName}</td>
+                        <td className="px-4 py-3 text-foreground">{s.branch?.name}</td>
+                        <td className="px-4 py-3">
+                          {isUnscheduled ? (
+                            <span className="text-[10px] font-mono text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full">
+                              unscheduled
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-mono text-primary border border-primary/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 w-fit">
+                              <Star className="w-2 h-2" /> scheduled
                             </span>
                           )}
-                          {s.isOfflineEntry && (
-                            <span className="flex items-center gap-0.5 text-[10px] font-mono text-blue-400">
-                              <WifiOff className="w-2.5 h-2.5" />offline
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.expectedCheckIn || '—'}</td>
+                        <td className="px-4 py-3 font-mono text-xs">{s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '—'}</td>
+                        <td className="px-4 py-3"><LateCell lateByMinutes={s.lateByMinutes} expectedCheckIn={s.expectedCheckIn} /></td>
+                        <td className="px-4 py-3 font-mono text-xs">{s.checkOutTime ? format(new Date(s.checkOutTime), 'HH:mm') : '—'}</td>
+                        <td className="px-4 py-3 font-mono text-xs">{s.durationMinutes != null ? `${s.durationMinutes}m` : '—'}</td>
+                        <td className="px-4 py-3">
+                          {s.checkInDistanceMeters != null ? (
+                            <span className={cn('font-mono text-xs flex items-center gap-1',
+                              s.checkInDistanceMeters > (s.branch?.allowedRadius || 100) ? 'text-destructive' : 'text-emerald-400')}>
+                              <Navigation className="w-3 h-3" />{s.checkInDistanceMeters}m
                             </span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          ) : <span className="text-muted-foreground text-xs">—</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={SESSION_STATUS_UI[s.sessionStatus]?.variant || 'pending'}>
+                            {SESSION_STATUS_UI[s.sessionStatus]?.label || s.sessionStatus}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-1 flex-wrap">
+                            {s.checkInStatus !== 'VALID' && (
+                              <span className={cn('text-[10px] font-mono', CHECKIN_STATUS_UI[s.checkInStatus]?.color)}>
+                                {CHECKIN_STATUS_UI[s.checkInStatus]?.label}
+                              </span>
+                            )}
+                            {s.isOfflineEntry && (
+                              <span className="flex items-center gap-0.5 text-[10px] font-mono text-blue-400">
+                                <WifiOff className="w-2.5 h-2.5" />offline
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -209,12 +269,17 @@ function DailyTab() {
             </div>
           )}
 
-          {summary?.totalAbsent > 0 && summary?.assignments && (
+          {/* Absent from schedule */}
+          {summary?.totalAbsent > 0 && summary?.assignments?.length > 0 && (
             <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4">
-              <p className="text-xs font-mono text-destructive uppercase tracking-wider mb-2">Absent / Not Checked In</p>
+              <p className="text-xs font-mono text-destructive uppercase tracking-wider mb-2">
+                Not Checked In (Scheduled)
+              </p>
               <div className="space-y-1.5">
                 {summary.assignments
-                  .filter((a) => !summary.sessions.some((s) => s.merchandiser?._id?.toString() === a.merchandiser?._id?.toString()))
+                  .filter((a) => !summary.sessions.some(
+                    (s) => s.merchandiser?._id?.toString() === a.merchandiser?._id?.toString()
+                  ))
                   .map((a) => (
                     <div key={a._id} className="flex items-center justify-between text-sm">
                       <span className="text-foreground">{a.merchandiser?.fullName}</span>
@@ -230,7 +295,7 @@ function DailyTab() {
   );
 }
 
-// ── Per Merchandiser tab ──────────────────────────────────────────────────────
+// ── Per Merchandiser Tab ──────────────────────────────────────────────────────
 function MerchandiserTab() {
   const [merchandisers, setMerchandisers] = useState([]);
   const [selectedId, setSelectedId]       = useState('');
@@ -265,10 +330,11 @@ function MerchandiserTab() {
 
   const handleExportCSV = () => {
     if (!report?.sessions?.length) return;
-    const headers = ['Date', 'Branch', 'Expected', 'Check-In', 'Late (min)', 'Check-Out', 'Duration', 'Status'];
+    const headers = ['Date', 'Branch', 'Type', 'Expected', 'Check-In', 'Late (min)', 'Check-Out', 'Duration', 'Status'];
     const rows = report.sessions.map((s) => [
       s.date,
       s.branch?.name || '',
+      s.notes === 'Unscheduled visit' ? 'Unscheduled' : 'Scheduled',
       s.expectedCheckIn || '',
       s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '',
       s.lateByMinutes ?? '',
@@ -324,10 +390,10 @@ function MerchandiserTab() {
       {report && !loading && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={CheckCircle2}  label="Total Sessions"  value={report.totalSessions}     />
-            <StatCard icon={Clock}         label="Hours Worked"    value={`${report.totalHoursWorked}h`} color="text-blue-400" bg="bg-blue-500/10" />
-            <StatCard icon={AlertTriangle} label="Late Arrivals"   value={report.lateArrivals}      color="text-amber-400" bg="bg-amber-500/10" />
-            <StatCard icon={XCircle}       label="Days Absent"     value={report.daysAbsent}        color="text-destructive" bg="bg-destructive/10" />
+            <StatCard icon={CheckCircle2} label="Total Sessions" value={report.totalSessions} />
+            <StatCard icon={Clock} label="Hours Worked" value={`${report.totalHoursWorked}h`} color="text-blue-400" bg="bg-blue-500/10" />
+            <StatCard icon={AlertTriangle} label="Late Arrivals" value={report.lateArrivals} color="text-amber-400" bg="bg-amber-500/10" />
+            <StatCard icon={XCircle} label="Days Absent" value={report.daysAbsent} sub="vs assignments" color="text-destructive" bg="bg-destructive/10" />
           </div>
 
           {report.sessions.length > 0 && (
@@ -335,7 +401,7 @@ function MerchandiserTab() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-rekker-border bg-rekker-surface">
-                    {['Date', 'Branch', 'Expected', 'Check-In', 'Timeliness', 'Check-Out', 'Duration', 'Status'].map((h) => (
+                    {['Date', 'Branch', 'Type', 'Expected', 'Check-In', 'Timeliness', 'Check-Out', 'Duration', 'Status'].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{h}</th>
                     ))}
                   </tr>
@@ -345,6 +411,11 @@ function MerchandiserTab() {
                     <tr key={s._id} className={`border-b border-rekker-border/50 hover:bg-accent/20 transition-colors ${i % 2 !== 0 ? 'bg-rekker-surface/20' : ''}`}>
                       <td className="px-4 py-3 font-mono text-xs text-foreground">{s.date}</td>
                       <td className="px-4 py-3 text-foreground">{s.branch?.name}</td>
+                      <td className="px-4 py-3">
+                        {s.notes === 'Unscheduled visit'
+                          ? <span className="text-[10px] font-mono text-amber-400">unscheduled</span>
+                          : <span className="text-[10px] font-mono text-primary">scheduled</span>}
+                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.expectedCheckIn || '—'}</td>
                       <td className="px-4 py-3 font-mono text-xs">{s.checkInTime ? format(new Date(s.checkInTime), 'HH:mm') : '—'}</td>
                       <td className="px-4 py-3"><LateCell lateByMinutes={s.lateByMinutes} expectedCheckIn={s.expectedCheckIn} /></td>
@@ -372,7 +443,9 @@ export default function AttendancePage() {
     <div className="space-y-6">
       <div>
         <h1 className="page-title">Attendance</h1>
-        <p className="text-sm text-muted-foreground mt-1">Check-in records, location verification, and exportable reports</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          All check-ins by date — scheduled and unscheduled visits, location verification, and exports
+        </p>
       </div>
       <Tabs defaultValue="daily">
         <TabsList>

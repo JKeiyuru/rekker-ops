@@ -1,7 +1,13 @@
 // server/routes/assignments.js
+// Assignments are now OPTIONAL scheduling hints — not access gates.
+// A merchandiser can check in to any active branch even without an assignment.
+// Assignments exist purely for:
+//   • Pre-scheduling planned visits
+//   • Tracking "scheduled vs unscheduled" in reports
+//   • Showing suggested branches in the check-in UI
 
-const express = require('express');
-const router = express.Router();
+const express    = require('express');
+const router     = express.Router();
 const Assignment = require('../models/Assignment');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -9,180 +15,174 @@ const MERCH_MANAGE = ['super_admin', 'admin', 'team_lead', 'merchandising_team_l
 
 const POPULATE = [
   { path: 'merchandiser', select: 'fullName username role' },
-  { path: 'branch', select: 'name latitude longitude allowedRadius' },
-  { path: 'assignedBy', select: 'fullName' },
+  { path: 'branch',       select: 'name isActive'         },
+  { path: 'createdBy',    select: 'fullName'               },
 ];
 
-// GET /api/assignments?date=YYYY-MM-DD
-router.get('/', protect, async (req, res) => {
+// ── GET /api/assignments ──────────────────────────────────────────────────────
+router.get('/', protect, authorize(...MERCH_MANAGE), async (req, res) => {
   try {
-    const date = req.query.date || new Date().toISOString().split('T')[0];
-    const filter = { date };
-    if (req.user.role === 'merchandiser') filter.merchandiser = req.user._id;
+    const { date, merchandiserId, branchId } = req.query;
+    const filter = {};
+    if (date)           filter.date        = date;
+    if (merchandiserId) filter.merchandiser = merchandiserId;
+    if (branchId)       filter.branch      = branchId;
 
-    const assignments = await Assignment.find(filter).populate(POPULATE).sort({ createdAt: 1 });
+    const assignments = await Assignment.find(filter).populate(POPULATE).sort({ date: -1 });
     res.json(assignments);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// GET /api/assignments/my
+// ── GET /api/assignments/my — today's assignments for the current user ─────────
+// Returns [] if no assignments exist (merchandiser can still check in freely).
 router.get('/my', protect, async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
-    const assignments = await Assignment.find({ date, merchandiser: req.user._id })
-      .populate(POPULATE)
-      .sort({ createdAt: 1 });
+    const assignments = await Assignment.find({
+      merchandiser: req.user._id,
+      date,
+    }).populate(POPULATE);
     res.json(assignments);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// GET /api/assignments/range?start=YYYY-MM-DD&end=YYYY-MM-DD&merchandiserId=
-router.get('/range', protect, async (req, res) => {
+// ── GET /api/assignments/:id ──────────────────────────────────────────────────
+router.get('/:id', protect, async (req, res) => {
   try {
-    const { start, end, merchandiserId } = req.query;
-    const filter = {};
-    if (start && end) filter.date = { $gte: start, $lte: end };
-    if (merchandiserId) filter.merchandiser = merchandiserId;
-    if (req.user.role === 'merchandiser') filter.merchandiser = req.user._id;
+    const assignment = await Assignment.findById(req.params.id).populate(POPULATE);
+    if (!assignment) return res.status(404).json({ message: 'Assignment not found' });
 
-    const assignments = await Assignment.find(filter).populate(POPULATE).sort({ date: 1, createdAt: 1 });
-    res.json(assignments);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// POST /api/assignments — create one
-router.post('/', protect, async (req, res) => {
-  try {
-    if (!MERCH_MANAGE.includes(req.user.role))
+    // Merchandisers can only see their own
+    if (
+      req.user.role === 'merchandiser' &&
+      assignment.merchandiser._id.toString() !== req.user._id.toString()
+    ) {
       return res.status(403).json({ message: 'Access denied' });
-
-    const { date, merchandiserId, branchId, expectedCheckIn, notes } = req.body;
-    if (!date || !merchandiserId || !branchId)
-      return res.status(400).json({ message: 'date, merchandiserId, branchId required' });
-
-    const assignment = await Assignment.create({
-      date, merchandiser: merchandiserId, branch: branchId,
-      expectedCheckIn: expectedCheckIn || null, notes: notes || '',
-      assignedBy: req.user._id,
-    });
-
-    await assignment.populate(POPULATE);
-    res.status(201).json(assignment);
-  } catch (err) {
-    if (err.code === 11000)
-      return res.status(400).json({ message: 'Already assigned to this branch on that date' });
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// POST /api/assignments/bulk — create many (supports date range)
-router.post('/bulk', protect, async (req, res) => {
-  try {
-    if (!MERCH_MANAGE.includes(req.user.role))
-      return res.status(403).json({ message: 'Access denied' });
-
-    const { date, dateRange, assignments } = req.body;
-    // dateRange: { start, end } — assign the same set across a range of dates
-    if (!assignments?.length) return res.status(400).json({ message: 'assignments array required' });
-
-    // Build list of dates to assign
-    let dates = [];
-    if (dateRange?.start && dateRange?.end) {
-      const start = new Date(dateRange.start + 'T00:00:00');
-      const end   = new Date(dateRange.end   + 'T00:00:00');
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        dates.push(d.toISOString().split('T')[0]);
-      }
-    } else if (date) {
-      dates = [date];
-    } else {
-      return res.status(400).json({ message: 'date or dateRange required' });
     }
 
-    const docs = [];
-    for (const d of dates) {
-      for (const a of assignments) {
-        docs.push({
-          date: d,
-          merchandiser: a.merchandiserId,
-          branch: a.branchId,
-          expectedCheckIn: a.expectedCheckIn || null,
-          notes: a.notes || '',
-          assignedBy: req.user._id,
-        });
-      }
-    }
-
-    await Assignment.insertMany(docs, { ordered: false }).catch(() => {});
-
-    // Return all assignments for the date range
-    const firstDate = dates[0];
-    const lastDate  = dates[dates.length - 1];
-    const created = await Assignment.find({
-      date: { $gte: firstDate, $lte: lastDate },
-      assignedBy: req.user._id,
-    }).populate(POPULATE).sort({ date: 1, createdAt: 1 });
-
-    res.status(201).json(created);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// PUT /api/assignments/:id — edit
-router.put('/:id', protect, async (req, res) => {
-  try {
-    if (!MERCH_MANAGE.includes(req.user.role))
-      return res.status(403).json({ message: 'Access denied' });
-
-    const { merchandiserId, branchId, expectedCheckIn, notes, date } = req.body;
-    const update = {};
-    if (merchandiserId)     update.merchandiser    = merchandiserId;
-    if (branchId)           update.branch          = branchId;
-    if (expectedCheckIn !== undefined) update.expectedCheckIn = expectedCheckIn || null;
-    if (notes !== undefined) update.notes = notes;
-    if (date)               update.date = date;
-
-    const assignment = await Assignment.findByIdAndUpdate(req.params.id, update, { new: true }).populate(POPULATE);
-    if (!assignment) return res.status(404).json({ message: 'Not found' });
     res.json(assignment);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// DELETE /api/assignments/:id
-router.delete('/:id', protect, async (req, res) => {
+// ── POST /api/assignments — create a scheduled visit (optional) ───────────────
+router.post('/', protect, authorize(...MERCH_MANAGE), async (req, res) => {
   try {
-    if (!MERCH_MANAGE.includes(req.user.role))
-      return res.status(403).json({ message: 'Access denied' });
-    await Assignment.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Deleted' });
+    const { merchandiserId, branchId, date, expectedCheckIn, notes } = req.body;
+
+    if (!merchandiserId || !branchId || !date) {
+      return res.status(400).json({ message: 'merchandiserId, branchId and date are required' });
+    }
+
+    // Prevent duplicate assignments for the same person/branch/day
+    const existing = await Assignment.findOne({
+      merchandiser: merchandiserId,
+      branch:       branchId,
+      date,
+    });
+    if (existing) {
+      return res.status(400).json({
+        message: 'Assignment already exists for this merchandiser, branch, and date',
+      });
+    }
+
+    const assignment = await Assignment.create({
+      merchandiser:    merchandiserId,
+      branch:          branchId,
+      date,
+      expectedCheckIn: expectedCheckIn || null,
+      notes:           notes           || '',
+      createdBy:       req.user._id,
+    });
+
+    await assignment.populate(POPULATE);
+    res.status(201).json(assignment);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// DELETE /api/assignments/bulk — delete all assignments for a date (or range)
-router.delete('/bulk', protect, async (req, res) => {
+// ── POST /api/assignments/bulk — create multiple assignments at once ───────────
+router.post('/bulk', protect, authorize(...MERCH_MANAGE), async (req, res) => {
   try {
-    if (!MERCH_MANAGE.includes(req.user.role))
-      return res.status(403).json({ message: 'Access denied' });
+    const { assignments } = req.body; // [{ merchandiserId, branchId, date, expectedCheckIn }]
+    if (!Array.isArray(assignments) || assignments.length === 0) {
+      return res.status(400).json({ message: 'assignments array required' });
+    }
 
-    const { date, dateRange, merchandiserId } = req.body;
-    const filter = {};
-    if (dateRange?.start && dateRange?.end) filter.date = { $gte: dateRange.start, $lte: dateRange.end };
-    else if (date) filter.date = date;
-    else return res.status(400).json({ message: 'date or dateRange required' });
-    if (merchandiserId) filter.merchandiser = merchandiserId;
+    const results = { created: 0, skipped: 0, errors: [] };
 
-    const result = await Assignment.deleteMany(filter);
+    for (const a of assignments) {
+      try {
+        const existing = await Assignment.findOne({
+          merchandiser: a.merchandiserId,
+          branch:       a.branchId,
+          date:         a.date,
+        });
+        if (existing) { results.skipped++; continue; }
+
+        await Assignment.create({
+          merchandiser:    a.merchandiserId,
+          branch:          a.branchId,
+          date:            a.date,
+          expectedCheckIn: a.expectedCheckIn || null,
+          notes:           a.notes           || '',
+          createdBy:       req.user._id,
+        });
+        results.created++;
+      } catch (e) {
+        results.errors.push({ entry: a, error: e.message });
+      }
+    }
+
+    res.status(201).json(results);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── PATCH /api/assignments/:id ────────────────────────────────────────────────
+router.patch('/:id', protect, authorize(...MERCH_MANAGE), async (req, res) => {
+  try {
+    const { expectedCheckIn, notes } = req.body;
+
+    const assignment = await Assignment.findByIdAndUpdate(
+      req.params.id,
+      { $set: { expectedCheckIn, notes } },
+      { new: true, runValidators: true }
+    ).populate(POPULATE);
+
+    if (!assignment) return res.status(404).json({ message: 'Assignment not found' });
+    res.json(assignment);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── DELETE /api/assignments/:id ───────────────────────────────────────────────
+router.delete('/:id', protect, authorize(...MERCH_MANAGE), async (req, res) => {
+  try {
+    const assignment = await Assignment.findByIdAndDelete(req.params.id);
+    if (!assignment) return res.status(404).json({ message: 'Assignment not found' });
+    res.json({ message: 'Assignment deleted' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── DELETE /api/assignments/bulk-delete ───────────────────────────────────────
+router.delete('/bulk-delete', protect, authorize(...MERCH_MANAGE), async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'ids array required' });
+    }
+    const result = await Assignment.deleteMany({ _id: { $in: ids } });
     res.json({ deleted: result.deletedCount });
   } catch (err) {
     res.status(500).json({ message: err.message });

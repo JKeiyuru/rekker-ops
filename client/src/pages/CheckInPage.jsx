@@ -1,46 +1,48 @@
 // client/src/pages/CheckInPage.jsx
-// Primary page for merchandisers to check in/out.
-// Fetches both today's sessions AND recent history so the widget
-// can surface incomplete sessions from previous days for checkout.
+// Loads all active branches + today's assignments (for schedule hints).
+// Merchandisers can check in to any branch — assignments are optional suggestions.
 
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { Loader2, MapPin } from 'lucide-react';
+import { Loader2, Calendar, Star } from 'lucide-react';
 import CheckInWidget from '@/components/CheckInWidget';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
 import { syncQueue } from '@/lib/offlineQueue';
 
 export default function CheckInPage() {
-  const { user }                          = useAuthStore();
-  const [assignments, setAssignments]     = useState([]);
-  const [sessions, setSessions]           = useState([]);
-  const [loading, setLoading]             = useState(true);
+  const { user }                      = useAuthStore();
+  const [branches, setBranches]       = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [sessions, setSessions]       = useState([]);
+  const [loading, setLoading]         = useState(true);
+
   const today = format(new Date(), 'EEEE, dd MMMM yyyy');
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [assignRes, todayRes, historyRes] = await Promise.all([
+        const [branchRes, assignRes, todayRes, historyRes] = await Promise.all([
+          // All active verified branches — no assignment required
+          api.get('/branches'),
+          // Today's assignments — purely for highlighting suggested branches
           api.get('/assignments/my'),
+          // Today's sessions
           api.get('/checkins/my'),
-          // Fetch last 30 days of history to find incomplete sessions
+          // Last 30 days for incomplete session detection
           api.get('/checkins/my/history', { params: { days: 30 } }),
         ]);
 
+        setBranches(Array.isArray(branchRes.data) ? branchRes.data : []);
         setAssignments(Array.isArray(assignRes.data) ? assignRes.data : []);
 
-        // Merge today's sessions with history, deduplicating by _id
-        const todaySessions    = Array.isArray(todayRes.data)   ? todayRes.data   : [];
-        const historySessions  = Array.isArray(historyRes.data) ? historyRes.data : [];
-
-        const todayIds = new Set(todaySessions.map((s) => s._id));
-        const combined = [
+        const todaySessions   = Array.isArray(todayRes.data)   ? todayRes.data   : [];
+        const historySessions = Array.isArray(historyRes.data) ? historyRes.data : [];
+        const todayIds        = new Set(todaySessions.map((s) => s._id));
+        setSessions([
           ...todaySessions,
           ...historySessions.filter((s) => !todayIds.has(s._id)),
-        ];
-
-        setSessions(combined);
+        ]);
       } catch {
         // Silent — widget handles empty state
       } finally {
@@ -72,16 +74,17 @@ export default function CheckInPage() {
         </p>
       </div>
 
-      {/* Today's assignment summary */}
+      {/* Scheduled visits notice */}
       {!loading && assignments.length > 0 && (
-        <div className="rounded-xl border border-rekker-border bg-rekker-surface p-4 max-w-md mx-auto">
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-2">
-            Today's Assignment{assignments.length !== 1 ? 's' : ''}
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 max-w-md mx-auto">
+          <p className="text-xs font-mono text-primary uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5" />
+            Scheduled for today
           </p>
           <div className="space-y-1.5">
             {assignments.map((a) => (
               <div key={a._id} className="flex items-center gap-2 text-sm">
-                <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
+                <Star className="w-3 h-3 text-primary shrink-0" />
                 <span className="text-foreground font-medium">{a.branch?.name}</span>
                 {a.expectedCheckIn && (
                   <span className="text-xs text-muted-foreground font-mono ml-auto">
@@ -91,6 +94,9 @@ export default function CheckInPage() {
               </div>
             ))}
           </div>
+          <p className="text-[10px] text-muted-foreground font-mono mt-2 pt-2 border-t border-border">
+            You can also check in to any other branch below.
+          </p>
         </div>
       )}
 
@@ -100,6 +106,7 @@ export default function CheckInPage() {
         </div>
       ) : (
         <CheckInWidget
+          branches={branches}
           assignments={assignments}
           sessions={sessions}
           onSessionUpdate={handleSessionUpdate}

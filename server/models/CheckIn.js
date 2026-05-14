@@ -1,84 +1,119 @@
 // server/models/CheckIn.js
+// Unified check-in session model.
+// Key change: branch assignment is no longer required.
+// `expectedCheckIn` and `lateByMinutes` are populated from an assignment
+// IF one exists for this merchandiser+branch+date — otherwise left null.
+// `notes` field captures "Unscheduled visit" for free-form check-ins.
 
 const mongoose = require('mongoose');
 
-const sessionSchema = new mongoose.Schema(
+const locationSchema = new mongoose.Schema(
   {
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
+const checkInSchema = new mongoose.Schema(
+  {
+    // ── Core relations ────────────────────────────────────────────────────────
     merchandiser: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      'User',
       required: true,
+      index:    true,
     },
     branch: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Branch',
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      'Branch',
       required: true,
+      index:    true,
     },
+
+    // ── Date (YYYY-MM-DD string — timezone-safe, easy to query/group) ─────────
     date: {
-      type: String, // YYYY-MM-DD
+      type:     String,
       required: true,
+      index:    true,
+      match:    /^\d{4}-\d{2}-\d{2}$/,
     },
 
-    // Expected check-in time copied from the assignment (for late calculation)
-    expectedCheckIn: {
-      type: String, // e.g. "08:00"
-      default: null,
-    },
-    // Late difference in minutes (positive = late, negative = early)
-    lateByMinutes: {
-      type: Number,
-      default: null,
-    },
+    // ── Optional assignment context ───────────────────────────────────────────
+    // Populated when an Assignment document exists for this combo; null otherwise.
+    expectedCheckIn: { type: String, default: null },    // "HH:MM" from assignment
+    lateByMinutes:   { type: Number, default: null },    // negative = early
 
-    // Check-in data
-    checkInTime: {
-      type: Date,
-      required: true,
-    },
-    checkInLocation: {
-      lat: { type: Number, default: null },
-      lng: { type: Number, default: null },
-    },
-    checkInDistanceMeters: {
-      type: Number,
-      default: null,
-    },
+    // ── Check-in ─────────────────────────────────────────────────────────────
+    checkInTime:           { type: Date,   required: true },
+    checkInLocation:       { type: locationSchema, default: () => ({}) },
+    checkInDistanceMeters: { type: Number, default: null },
     checkInStatus: {
-      type: String,
-      enum: ['VALID', 'MISMATCH', 'LOCATION_DISABLED', 'OFFLINE'],
-      default: 'VALID',
+      type:    String,
+      enum:    ['VALID', 'MISMATCH', 'LOCATION_DISABLED', 'OFFLINE'],
+      default: 'LOCATION_DISABLED',
     },
 
-    // Check-out data
-    checkOutTime:  { type: Date, default: null },
-    checkOutLocation: {
-      lat: { type: Number, default: null },
-      lng: { type: Number, default: null },
-    },
+    // ── Check-out ─────────────────────────────────────────────────────────────
+    checkOutTime:           { type: Date,   default: null },
+    checkOutLocation:       { type: locationSchema, default: () => ({}) },
     checkOutDistanceMeters: { type: Number, default: null },
     checkOutStatus: {
-      type: String,
-      enum: ['VALID', 'MISMATCH', 'LOCATION_DISABLED', 'OFFLINE', null],
+      type:    String,
+      enum:    ['VALID', 'MISMATCH', 'LOCATION_DISABLED', 'OFFLINE', null],
       default: null,
     },
 
+    // ── Session ───────────────────────────────────────────────────────────────
+    durationMinutes: { type: Number, default: null },
     sessionStatus: {
-      type: String,
-      enum: ['ACTIVE', 'COMPLETE', 'INCOMPLETE', 'FLAGGED'],
+      type:    String,
+      enum:    ['ACTIVE', 'COMPLETE', 'INCOMPLETE', 'FLAGGED'],
       default: 'ACTIVE',
     },
 
-    durationMinutes: { type: Number, default: null },
-    isOfflineEntry:  { type: Boolean, default: false },
+    // ── Metadata ──────────────────────────────────────────────────────────────
+    isOfflineEntry: { type: Boolean, default: false },
+    deviceInfo:     { type: String,  default: '' },
 
-    deviceInfo: { type: String, default: '' },
-    notes:      { type: String, default: '' },
+    // notes: free-text annotations.
+    // Backend sets "Unscheduled visit" automatically when no assignment exists.
+    // Admins/team leads can override to add context.
+    notes: { type: String, default: '' },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON:     { virtuals: true },
+    toObject:   { virtuals: true },
+  }
 );
 
-sessionSchema.index({ merchandiser: 1, date: -1 });
-sessionSchema.index({ branch: 1, date: -1 });
-sessionSchema.index({ date: -1 });
+// ── Compound indexes ──────────────────────────────────────────────────────────
+// Most common queries: by date, by merchandiser+date, by branch+date
+checkInSchema.index({ date: 1, merchandiser: 1 });
+checkInSchema.index({ date: 1, branch: 1 });
+checkInSchema.index({ merchandiser: 1, date: -1 });
+checkInSchema.index({ sessionStatus: 1, date: 1 });
 
-module.exports = mongoose.model('CheckIn', sessionSchema);
+// ── Virtual: hours worked ─────────────────────────────────────────────────────
+checkInSchema.virtual('hoursWorked').get(function () {
+  if (this.durationMinutes == null) return null;
+  return +(this.durationMinutes / 60).toFixed(2);
+});
+
+// ── Virtual: isUnscheduled ────────────────────────────────────────────────────
+checkInSchema.virtual('isUnscheduled').get(function () {
+  return this.notes === 'Unscheduled visit';
+});
+
+// ── Pre-save: auto-compute duration when checkOutTime is set ──────────────────
+checkInSchema.pre('save', function (next) {
+  if (this.checkOutTime && this.checkInTime && this.durationMinutes == null) {
+    this.durationMinutes = Math.round(
+      (this.checkOutTime.getTime() - this.checkInTime.getTime()) / 60000
+    );
+  }
+  next();
+});
+
+module.exports = mongoose.model('CheckIn', checkInSchema);
