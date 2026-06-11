@@ -22,6 +22,11 @@ const ALL_ROLES = [
   'turnboy',
   'farm_sourcing',
   'market_sourcing',
+  // Ordinary-goods deliveries
+  'goods_driver',
+  'goods_turnboy',
+  // Manufacturing
+  'production_manager',
 ];
 
 // GET /api/users

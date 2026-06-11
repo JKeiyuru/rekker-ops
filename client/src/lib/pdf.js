@@ -238,3 +238,87 @@ export function exportTablePDF({ title, headers, rows, filename }) {
   addFooter(doc);
   doc.save(`${filename || 'rekker-export'}.pdf`);
 }
+
+// ── Production Cycle report ──────────────────────────────────────────────────
+export function exportProductionCyclePDF(cycle) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const startedAt = cycle.startedAt ? new Date(cycle.startedAt).toLocaleString('en-KE') : '—';
+  const endedAt   = cycle.endedAt   ? new Date(cycle.endedAt).toLocaleString('en-KE')   : '—';
+  let y = addHeader(doc, 'Production Cycle', `${cycle.cycleNumber} · ${cycle.product?.name || ''}`);
+
+  // Summary boxes
+  const snap = cycle.bomSnapshot || {};
+  const stats = [
+    ['Units', cycle.unitsProduced ?? 0],
+    ['Cost/Unit', `KES ${Number(cycle.costPerUnit || snap.totalUnitCost || 0).toFixed(2)}`],
+    ['Total Cost', `KES ${Number(cycle.totalCost || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`],
+    ['Status', (cycle.status || '—').toUpperCase()],
+    ['Run By', cycle.runBy?.fullName || '—'],
+  ];
+  const w = doc.internal.pageSize.getWidth();
+  const bw = (w - 28) / stats.length;
+  stats.forEach(([label, value], i) => {
+    const x = 14 + i * bw;
+    doc.setFillColor(247, 248, 250);
+    doc.rect(x, y, bw - 2, 18, 'F');
+    doc.setTextColor(...DARK_BG);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(String(value), x + bw / 2 - 1, y + 9, { align: 'center' });
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 110, 130);
+    doc.text(label.toUpperCase(), x + bw / 2 - 1, y + 15, { align: 'center' });
+  });
+  y += 24;
+
+  // Timing block
+  doc.setTextColor(...DARK_BG);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Started: ${startedAt}`, 14, y);
+  doc.text(`Ended:   ${endedAt}`,   14, y + 5);
+  doc.text(`BOM Rev: ${cycle.bomRevision ?? '—'}`, 14, y + 10);
+  y += 16;
+
+  // Materials table (BOM snapshot)
+  const rows = (snap.entries || []).map((e) => [
+    e.materialName || '—',
+    `${Number(e.qtyPerUnit || 0)} ${e.unit || ''}`,
+    `KES ${Number(e.unitPrice || 0).toFixed(2)}`,
+    `KES ${Number(e.lineCost || 0).toFixed(2)}`,
+  ]);
+  autoTable(doc, {
+    startY: y,
+    head: [['Material', 'Qty / Unit', 'Unit Price', 'Cost / Unit']],
+    body: rows,
+    ...TABLE_STYLES,
+  });
+
+  // Cost breakdown
+  const finalY = doc.lastAutoTable?.finalY || y + 20;
+  const breakdown = [
+    ['Materials',  `KES ${Number(snap.materialsCostPerUnit || 0).toFixed(2)}`],
+    ['Labor',      `KES ${Number(snap.laborCostPerUnit     || 0).toFixed(2)}`],
+    ['Packaging',  `KES ${Number(snap.packagingCostPerUnit || 0).toFixed(2)}`],
+    ['Overhead',   `KES ${Number(snap.overheadCostPerUnit  || 0).toFixed(2)}`],
+    ['TOTAL / UNIT', `KES ${Number(snap.totalUnitCost || 0).toFixed(2)}`],
+  ];
+  autoTable(doc, {
+    startY: finalY + 6,
+    head: [['Cost component', 'Per unit']],
+    body: breakdown,
+    ...TABLE_STYLES,
+  });
+
+  if (cycle.notes) {
+    const ny = (doc.lastAutoTable?.finalY || finalY) + 8;
+    doc.setFontSize(8);
+    doc.setTextColor(80, 90, 110);
+    doc.text(`Notes: ${cycle.notes}`, 14, ny);
+  }
+
+  addFooter(doc);
+  doc.save(`rekker-cycle-${cycle.cycleNumber}.pdf`);
+}
+

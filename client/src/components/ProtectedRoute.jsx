@@ -9,6 +9,8 @@ function homeFor(role) {
   if (role === 'packaging_team_lead')     return '/lpos';
   if (role === 'fresh_team_lead')         return '/fresh';
   if (['driver','turnboy','farm_sourcing','market_sourcing'].includes(role)) return '/fresh/trip';
+  if (['goods_driver','goods_turnboy'].includes(role)) return '/deliveries/trip';
+  if (role === 'production_manager')      return '/manufacturing';
   return '/dashboard';
 }
 

@@ -24,6 +24,11 @@ const userSchema = new mongoose.Schema(
         'turnboy',
         'farm_sourcing',
         'market_sourcing',
+        // Ordinary-goods deliveries
+        'goods_driver',
+        'goods_turnboy',
+        // Manufacturing
+        'production_manager',
         // Legacy / cross-module
         'team_lead',
         'viewer',

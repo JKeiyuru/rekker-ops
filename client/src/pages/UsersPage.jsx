@@ -32,20 +32,28 @@ const ROLE_CONFIG = {
   turnboy:                   { label: 'Turnboy / Helper',variant: 'secondary' },
   farm_sourcing:             { label: 'Farm Sourcing',   variant: 'secondary' },
   market_sourcing:           { label: 'Market Sourcing', variant: 'secondary' },
+  goods_driver:              { label: 'Goods Driver',    variant: 'secondary' },
+  goods_turnboy:             { label: 'Goods Turnboy',   variant: 'secondary' },
+  production_manager:        { label: 'Production Mgr',  variant: 'default'   },
   viewer:                    { label: 'Viewer',          variant: 'outline'   },
 };
 
 const ROLE_DESCRIPTIONS = {
-  driver:         'Drives the vehicle, leads the field trip',
-  turnboy:        'Vehicle helper / loader on field trips',
-  farm_sourcing:  'Sources produce directly from farms',
-  market_sourcing:'Sources produce from markets',
-  fresh_team_lead:'Manages and monitors fresh produce operations',
+  driver:             'Drives the vehicle, leads the field trip',
+  turnboy:            'Vehicle helper / loader on field trips',
+  farm_sourcing:      'Sources produce directly from farms',
+  market_sourcing:    'Sources produce from markets',
+  fresh_team_lead:    'Manages and monitors fresh produce operations',
+  goods_driver:       'Drives ordinary-goods delivery vehicles',
+  goods_turnboy:      'Helper on ordinary-goods deliveries',
+  production_manager: 'Manages products, BOMs, materials, suppliers, and production cycles',
 };
 
-const STAFF_ROLES  = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'merchandising_team_lead', 'fresh_team_lead', 'viewer'];
-const MERCH_ROLES  = ['merchandiser'];
-const FRESH_FIELD_ROLES = ['driver', 'turnboy', 'farm_sourcing', 'market_sourcing'];
+const STAFF_ROLES        = ['super_admin', 'admin', 'team_lead', 'packaging_team_lead', 'merchandising_team_lead', 'fresh_team_lead', 'production_manager', 'viewer'];
+const MERCH_ROLES        = ['merchandiser'];
+const FRESH_FIELD_ROLES  = ['driver', 'turnboy', 'farm_sourcing', 'market_sourcing'];
+const DELIVERY_ROLES     = ['goods_driver', 'goods_turnboy'];
+const PRODUCTION_ROLES   = ['production_manager'];
 
 // ── User modal ─────────────────────────────────────────────────────────────────
 function UserModal({ open, onClose, user: editUser, onSaved, currentUserRole, defaultRole = 'team_lead', availableRoles }) {
@@ -268,9 +276,11 @@ export default function UsersPage() {
     setModalOpen(true);
   };
 
-  const staffUsers       = allUsers.filter((u) => STAFF_ROLES.includes(u.role));
+  const staffUsers        = allUsers.filter((u) => STAFF_ROLES.includes(u.role));
   const merchandiserUsers = allUsers.filter((u) => MERCH_ROLES.includes(u.role));
-  const freshFieldUsers  = allUsers.filter((u) => FRESH_FIELD_ROLES.includes(u.role));
+  const freshFieldUsers   = allUsers.filter((u) => FRESH_FIELD_ROLES.includes(u.role));
+  const deliveryUsers     = allUsers.filter((u) => DELIVERY_ROLES.includes(u.role));
+  const productionUsers   = allUsers.filter((u) => PRODUCTION_ROLES.includes(u.role));
 
   return (
     <div className="space-y-6">
@@ -294,7 +304,9 @@ export default function UsersPage() {
           <TabsList>
             <TabsTrigger value="staff">Staff ({staffUsers.length})</TabsTrigger>
             <TabsTrigger value="merchandisers">Merchandisers ({merchandiserUsers.length})</TabsTrigger>
-            <TabsTrigger value="field">Field Ops ({freshFieldUsers.length})</TabsTrigger>
+            <TabsTrigger value="field">Fresh Field ({freshFieldUsers.length})</TabsTrigger>
+            <TabsTrigger value="delivery">Deliveries ({deliveryUsers.length})</TabsTrigger>
+            <TabsTrigger value="production">Production ({productionUsers.length})</TabsTrigger>
           </TabsList>
 
           {/* ── Staff tab ── */}
@@ -337,12 +349,12 @@ export default function UsersPage() {
             )}
           </TabsContent>
 
-          {/* ── Field Ops tab ── */}
+          {/* ── Fresh Field Ops tab ── */}
           <TabsContent value="field" className="space-y-4">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
                 <p className="text-xs text-muted-foreground font-mono">
-                  Field ops staff appear in the trip workflow — drivers, helpers, and sourcing personnel.
+                  Fresh produce field staff — drivers, helpers, and sourcing personnel for the fresh trip workflow.
                 </p>
                 <div className="flex flex-wrap gap-2 mt-2">
                   {FRESH_FIELD_ROLES.map((r) => (
@@ -355,19 +367,76 @@ export default function UsersPage() {
               </div>
               <Button onClick={() => openCreate('driver', FRESH_FIELD_ROLES)}>
                 <Plus className="w-4 h-4" />
-                New Field User
+                New Fresh Field User
               </Button>
             </div>
             {freshFieldUsers.length === 0 ? (
               <div className="text-center py-16 border border-dashed border-border rounded-xl">
-                <p className="text-sm text-muted-foreground">No field ops users yet.</p>
-                <p className="text-xs text-muted-foreground mt-1">Add drivers, helpers, and sourcing staff here.</p>
+                <p className="text-sm text-muted-foreground">No fresh field users yet.</p>
                 <Button className="mt-4" onClick={() => openCreate('driver', FRESH_FIELD_ROLES)}>
-                  <Plus className="w-4 h-4" />Add First Field User
+                  <Plus className="w-4 h-4" />Add First User
                 </Button>
               </div>
             ) : (
               <UserTable users={freshFieldUsers} currentUser={currentUser} onEdit={openEdit} onDelete={handleDelete} />
+            )}
+          </TabsContent>
+
+          {/* ── Ordinary-goods Deliveries tab ── */}
+          <TabsContent value="delivery" className="space-y-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <p className="text-xs text-muted-foreground font-mono">
+                  Drivers & turnboys for ordinary-goods deliveries. Merchandisers can also ride along as turnboys for the stores they serve.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {DELIVERY_ROLES.map((r) => (
+                    <span key={r} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent/50 border border-border text-[10px] font-mono text-muted-foreground">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+                      {ROLE_CONFIG[r]?.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <Button onClick={() => openCreate('goods_driver', DELIVERY_ROLES)}>
+                <Plus className="w-4 h-4" />
+                New Delivery User
+              </Button>
+            </div>
+            {deliveryUsers.length === 0 ? (
+              <div className="text-center py-16 border border-dashed border-border rounded-xl">
+                <p className="text-sm text-muted-foreground">No delivery users yet.</p>
+                <Button className="mt-4" onClick={() => openCreate('goods_driver', DELIVERY_ROLES)}>
+                  <Plus className="w-4 h-4" />Add First Delivery User
+                </Button>
+              </div>
+            ) : (
+              <UserTable users={deliveryUsers} currentUser={currentUser} onEdit={openEdit} onDelete={handleDelete} />
+            )}
+          </TabsContent>
+
+          {/* ── Production tab ── */}
+          <TabsContent value="production" className="space-y-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <p className="text-xs text-muted-foreground font-mono">
+                  Production managers run the Manufacturing module — products, BOMs, materials, suppliers and production cycles.
+                </p>
+              </div>
+              <Button onClick={() => openCreate('production_manager', PRODUCTION_ROLES)}>
+                <Plus className="w-4 h-4" />
+                New Production Mgr
+              </Button>
+            </div>
+            {productionUsers.length === 0 ? (
+              <div className="text-center py-16 border border-dashed border-border rounded-xl">
+                <p className="text-sm text-muted-foreground">No production managers yet.</p>
+                <Button className="mt-4" onClick={() => openCreate('production_manager', PRODUCTION_ROLES)}>
+                  <Plus className="w-4 h-4" />Add First PM
+                </Button>
+              </div>
+            ) : (
+              <UserTable users={productionUsers} currentUser={currentUser} onEdit={openEdit} onDelete={handleDelete} />
             )}
           </TabsContent>
         </Tabs>

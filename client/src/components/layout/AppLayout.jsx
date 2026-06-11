@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
+import MobileNav from './MobileNav';
+import NotificationsBell from '@/components/NotificationsBell';
+import ThemeToggle from '@/components/ThemeToggle';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
@@ -24,21 +27,37 @@ export default function AppLayout({ children }) {
 
   return (
     <div className="min-h-screen bg-background flex">
-      <Sidebar pendingBranches={pendingBranches} />
-      <main className="flex-1 ml-60 min-h-screen overflow-auto">
-        <div className="max-w-screen-2xl mx-auto px-6 py-6">{children}</div>
+      {/* Desktop sidebar */}
+      <div className="hidden md:block">
+        <Sidebar pendingBranches={pendingBranches} />
+      </div>
+
+      <main className="flex-1 md:ml-60 min-h-screen overflow-auto pb-20 md:pb-0">
+        <div className="max-w-screen-2xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
+          <div className="flex justify-end items-center gap-2 mb-4">
+            <ThemeToggle />
+            <NotificationsBell />
+          </div>
+          {children}
+        </div>
       </main>
+
+      {/* Mobile bottom nav */}
+      <div className="md:hidden">
+        <MobileNav pendingBranches={pendingBranches} />
+      </div>
+
       <Toaster
         position="top-right"
         toastOptions={{
           style: {
-            background: 'hsl(220 17% 10%)',
-            color: 'hsl(210 20% 92%)',
-            border: '1px solid hsl(220 17% 18%)',
+            background: 'hsl(var(--card))',
+            color: 'hsl(var(--foreground))',
+            border: '1px solid hsl(var(--border))',
             fontFamily: 'Sora, sans-serif',
             fontSize: '13px',
           },
-          success: { iconTheme: { primary: '#FF6B2C', secondary: '#0F1117' } },
+          success: { iconTheme: { primary: 'hsl(var(--primary))', secondary: 'hsl(var(--background))' } },
         }}
       />
     </div>

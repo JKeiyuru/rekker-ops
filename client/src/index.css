@@ -5,7 +5,9 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  /* Dark theme (default) */
+  :root,
+  :root.dark {
     --background: 220 17% 7%;
     --foreground: 210 20% 92%;
 
@@ -22,7 +24,7 @@
     --secondary-foreground: 210 20% 80%;
 
     --muted: 220 17% 14%;
-    --muted-foreground: 215 15% 50%;
+    --muted-foreground: 215 15% 55%;
 
     --accent: 220 17% 16%;
     --accent-foreground: 210 20% 92%;
@@ -35,6 +37,48 @@
     --ring: 22 100% 58%;
 
     --radius: 0.6rem;
+
+    /* Rekker-named surfaces driven by vars so they swap with theme */
+    --rekker-dark: 220 17% 7%;
+    --rekker-darker: 220 17% 4%;
+    --rekker-surface: 222 19% 12%;
+    --rekker-border: 220 17% 18%;
+  }
+
+  /* Light theme */
+  :root.light {
+    --background: 0 0% 100%;
+    --foreground: 222 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 25% 12%;
+
+    --primary: 22 100% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 25% 18%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 10% 42%;
+
+    --accent: 220 14% 94%;
+    --accent-foreground: 222 25% 12%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 14% 88%;
+    --input: 220 14% 92%;
+    --ring: 22 100% 50%;
+
+    --rekker-dark: 0 0% 100%;
+    --rekker-darker: 220 14% 96%;
+    --rekker-surface: 0 0% 99%;
+    --rekker-border: 220 14% 88%;
   }
 }
 
@@ -43,30 +87,33 @@
     @apply border-border;
   }
 
-  body {
+  html, body {
     @apply bg-background text-foreground font-sans;
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
+  /* Safe-area for iOS bottom nav */
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
 
-  ::-webkit-scrollbar-track {
-    background: hsl(var(--background));
-  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: hsl(var(--background)); }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+}
 
-  ::-webkit-scrollbar-thumb {
-    background: hsl(var(--border));
-    border-radius: 3px;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground));
-  }
+/* Override hardcoded rekker.* utility classes so they follow the theme.
+   The Tailwind config defines them as hex literals (dark-only); these rules
+   replace those with theme variables. */
+@layer utilities {
+  .bg-rekker-dark    { background-color: hsl(var(--rekker-dark)) !important; }
+  .bg-rekker-darker  { background-color: hsl(var(--rekker-darker)) !important; }
+  .bg-rekker-surface { background-color: hsl(var(--rekker-surface)) !important; }
+  .border-rekker-border { border-color: hsl(var(--rekker-border)) !important; }
+  .text-rekker-orange { color: hsl(var(--primary)) !important; }
+  .bg-rekker-orange { background-color: hsl(var(--primary)) !important; }
+  .divide-rekker-border > :not([hidden]) ~ :not([hidden]) { border-color: hsl(var(--rekker-border)) !important; }
 }
 
 @layer utilities {
@@ -77,13 +124,8 @@
     background-size: 32px 32px;
   }
 
-  .rekker-glow {
-    box-shadow: 0 0 40px hsl(22 100% 58% / 0.15);
-  }
-
-  .rekker-glow-sm {
-    box-shadow: 0 0 16px hsl(22 100% 58% / 0.2);
-  }
+  .rekker-glow    { box-shadow: 0 0 40px hsl(var(--primary) / 0.15); }
+  .rekker-glow-sm { box-shadow: 0 0 16px hsl(var(--primary) / 0.2); }
 
   .glass {
     background: hsl(var(--card) / 0.7);
@@ -95,15 +137,13 @@
     @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium font-mono tracking-wider uppercase;
   }
 
-  .table-cell-mono {
-    @apply font-mono text-xs;
-  }
+  .table-cell-mono { @apply font-mono text-xs; }
 
-  .animate-fade-up {
-    animation: fade-up 0.4s ease-out both;
-  }
+  .animate-fade-up { animation: fade-up 0.4s ease-out both; }
 
   .page-title {
-    @apply font-display text-4xl tracking-wider uppercase text-foreground;
+    @apply font-display text-3xl sm:text-4xl tracking-wider uppercase text-foreground;
   }
+
+  .touch-target { min-height: 44px; min-width: 44px; }
 }

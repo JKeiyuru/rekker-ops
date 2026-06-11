@@ -24,6 +24,14 @@ const mapsRoutes        = require('./routes/maps');
 const vehicleRoutes     = require('./routes/vehicles');
 const tripRoutes        = require('./routes/trips');
 const freshLpoRoutes    = require('./routes/freshLpos');
+const freshCustomerLpoRoutes = require('./routes/freshCustomerLpos');
+const freshReturnRoutes      = require('./routes/freshReturns');
+const packagingTripRoutes    = require('./routes/packagingTrips');
+const materialSupplierRoutes = require('./routes/materialSuppliers');
+const materialRoutes         = require('./routes/materials');
+const productRoutes          = require('./routes/products');
+const productionCycleRoutes  = require('./routes/productionCycles');
+const notificationRoutes     = require('./routes/notifications');
 
 const markIncompleteSessions = require('./jobs/markIncompleteSessions');
 
@@ -65,6 +73,14 @@ app.use('/api/maps',        mapsRoutes);
 app.use('/api/vehicles',    vehicleRoutes);
 app.use('/api/trips',       tripRoutes);
 app.use('/api/fresh-lpos',  freshLpoRoutes);
+app.use('/api/fresh-customer-lpos', freshCustomerLpoRoutes);
+app.use('/api/fresh-returns',       freshReturnRoutes);
+app.use('/api/packaging-trips',     packagingTripRoutes);
+app.use('/api/material-suppliers',  materialSupplierRoutes);
+app.use('/api/materials',           materialRoutes);
+app.use('/api/products',            productRoutes);
+app.use('/api/production-cycles',   productionCycleRoutes);
+app.use('/api/notifications',       notificationRoutes);
 
 // ── Internal job endpoint ─────────────────────────────────────────────────────
 // Called by Render's Cron Job service (or any trusted scheduler).

@@ -22,13 +22,30 @@ import TripWorkflow          from '@/pages/fresh/TripWorkflow';
 import FreshLPOPage          from '@/pages/fresh/FreshLPOPage';
 import FreshReportsPage      from '@/pages/fresh/FreshReportsPage';
 import VehiclesPage          from '@/pages/fresh/VehiclesPage';
+// New
+import FreshCustomerLPOsPage from '@/pages/fresh/FreshCustomerLPOsPage';
+import FreshReturnsPage      from '@/pages/fresh/FreshReturnsPage';
+import DeliveriesDashboard   from '@/pages/deliveries/DeliveriesDashboard';
+import DeliveryTripWorkflow  from '@/pages/deliveries/DeliveryTripWorkflow';
+import ManufacturingDashboard from '@/pages/manufacturing/ManufacturingDashboard';
+import ProductsPage           from '@/pages/manufacturing/ProductsPage';
+import ProductDetailPage      from '@/pages/manufacturing/ProductDetailPage';
+import MaterialsPage          from '@/pages/manufacturing/MaterialsPage';
+import SuppliersPage          from '@/pages/manufacturing/SuppliersPage';
+import ProductionCyclesPage   from '@/pages/manufacturing/ProductionCyclesPage';
+import PricingPage            from '@/pages/manufacturing/PricingPage';
+import CostAuditPage          from '@/pages/manufacturing/CostAuditPage';
 
-const ADMIN       = ['super_admin','admin'];
-const PACKAGING   = ['super_admin','admin','team_lead','packaging_team_lead','viewer'];
-const MERCH_MGMT  = ['super_admin','admin','team_lead','merchandising_team_lead'];
-const MERCH_ALL   = [...MERCH_MGMT,'merchandiser'];
-const FRESH_MGMT  = ['super_admin','admin','team_lead','fresh_team_lead'];
-const FRESH_FIELD = [...FRESH_MGMT,'driver','turnboy','farm_sourcing','market_sourcing'];
+const ADMIN        = ['super_admin','admin'];
+const PACKAGING    = ['super_admin','admin','team_lead','packaging_team_lead','viewer'];
+const PACKAGING_PM = [...PACKAGING, 'production_manager'];
+const MERCH_MGMT   = ['super_admin','admin','team_lead','merchandising_team_lead'];
+const MERCH_ALL    = [...MERCH_MGMT,'merchandiser'];
+const FRESH_MGMT   = ['super_admin','admin','team_lead','fresh_team_lead'];
+const FRESH_FIELD  = [...FRESH_MGMT,'driver','turnboy','farm_sourcing','market_sourcing'];
+const DELIVERY_MGMT  = ['super_admin','admin','team_lead','packaging_team_lead'];
+const DELIVERY_FIELD = [...DELIVERY_MGMT, 'goods_driver', 'goods_turnboy', 'merchandiser'];
+const MFG_ALL  = ['super_admin','admin','production_manager'];
 
 function RoleRedirect() {
   const { user, loading } = useAuthStore();
@@ -40,6 +57,8 @@ function RoleRedirect() {
   if (r === 'packaging_team_lead')     return <Navigate to="/lpos"            replace />;
   if (['driver','turnboy','farm_sourcing','market_sourcing'].includes(r)) return <Navigate to="/fresh/trip" replace />;
   if (r === 'fresh_team_lead')         return <Navigate to="/fresh"           replace />;
+  if (['goods_driver','goods_turnboy'].includes(r)) return <Navigate to="/deliveries/trip" replace />;
+  if (r === 'production_manager')      return <Navigate to="/manufacturing"   replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -55,10 +74,9 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/"   element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
-      <Route path="/*"  element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
 
       {/* Packaging */}
-      <Route path="/dashboard" element={<P roles={PACKAGING}><Dashboard /></P>} />
+      <Route path="/dashboard" element={<P roles={PACKAGING_PM}><Dashboard /></P>} />
       <Route path="/lpos"      element={<P roles={PACKAGING}><LPOsPage /></P>} />
       <Route path="/invoices"  element={<P roles={PACKAGING}><InvoicePage /></P>} />
       <Route path="/reports"   element={<P roles={ADMIN}><ReportsPage /></P>} />
@@ -70,16 +88,34 @@ export default function App() {
       <Route path="/attendance"      element={<P roles={MERCH_MGMT}><AttendancePage /></P>} />
 
       {/* Fresh Produce */}
-      <Route path="/fresh"          element={<P roles={FRESH_MGMT}><FreshDashboard /></P>} />
-      <Route path="/fresh/trip"     element={<P roles={FRESH_FIELD}><TripWorkflow /></P>} />
-      <Route path="/fresh/lpos"     element={<P roles={FRESH_FIELD}><FreshLPOPage /></P>} />
-      <Route path="/fresh/reports"  element={<P roles={FRESH_MGMT}><FreshReportsPage /></P>} />
-      <Route path="/fresh/vehicles" element={<P roles={ADMIN}><VehiclesPage /></P>} />
+      <Route path="/fresh"               element={<P roles={FRESH_MGMT}><FreshDashboard /></P>} />
+      <Route path="/fresh/trip"          element={<P roles={FRESH_FIELD}><TripWorkflow /></P>} />
+      <Route path="/fresh/lpos"          element={<P roles={FRESH_FIELD}><FreshLPOPage /></P>} />
+      <Route path="/fresh/customer-lpos" element={<P roles={FRESH_MGMT}><FreshCustomerLPOsPage /></P>} />
+      <Route path="/fresh/returns"       element={<P roles={FRESH_MGMT}><FreshReturnsPage /></P>} />
+      <Route path="/fresh/reports"       element={<P roles={FRESH_MGMT}><FreshReportsPage /></P>} />
+      <Route path="/fresh/vehicles"      element={<P roles={ADMIN}><VehiclesPage /></P>} />
+
+      {/* Deliveries (ordinary goods) */}
+      <Route path="/deliveries"      element={<P roles={DELIVERY_MGMT}><DeliveriesDashboard /></P>} />
+      <Route path="/deliveries/trip" element={<P roles={DELIVERY_FIELD}><DeliveryTripWorkflow /></P>} />
+
+      {/* Manufacturing */}
+      <Route path="/manufacturing"            element={<P roles={MFG_ALL}><ManufacturingDashboard /></P>} />
+      <Route path="/manufacturing/products"   element={<P roles={MFG_ALL}><ProductsPage /></P>} />
+      <Route path="/manufacturing/products/:id" element={<P roles={MFG_ALL}><ProductDetailPage /></P>} />
+      <Route path="/manufacturing/materials"  element={<P roles={MFG_ALL}><MaterialsPage /></P>} />
+      <Route path="/manufacturing/suppliers"  element={<P roles={MFG_ALL}><SuppliersPage /></P>} />
+      <Route path="/manufacturing/cycles"     element={<P roles={MFG_ALL}><ProductionCyclesPage /></P>} />
+      <Route path="/manufacturing/pricing"    element={<P roles={ADMIN}><PricingPage /></P>} />
+      <Route path="/manufacturing/audit"      element={<P roles={MFG_ALL}><CostAuditPage /></P>} />
 
       {/* Admin */}
       <Route path="/users"    element={<P roles={ADMIN}><UsersPage /></P>} />
       <Route path="/persons"  element={<P roles={ADMIN}><PersonsPage /></P>} />
       <Route path="/branches" element={<P roles={ADMIN}><BranchesPage /></P>} />
+
+      <Route path="/*"  element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
     </Routes>
   );
 }

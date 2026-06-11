@@ -5,27 +5,39 @@ import {
   LayoutDashboard, FileText, BarChart3, Users, UserCog,
   LogOut, ChevronRight, Zap, Building2, Receipt,
   MapPin, CalendarCheck, ClipboardList, Truck,
-  Package, FileSpreadsheet, BarChart2,
+  Package, FileSpreadsheet, BarChart2, Factory,
+  Beaker, Boxes, Tag, RotateCcw, ShoppingCart, History,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 const PACKAGING  = ['super_admin','admin','team_lead','packaging_team_lead','viewer'];
+const PACKAGING_PM = [...PACKAGING, 'production_manager'];
 const MERCH_MGMT = ['super_admin','admin','team_lead','merchandising_team_lead'];
 const MERCH_ALL  = [...MERCH_MGMT,'merchandiser'];
 const FRESH_MGMT = ['super_admin','admin','team_lead','fresh_team_lead'];
 const FRESH_FIELD= ['super_admin','admin','team_lead','fresh_team_lead','driver','turnboy','farm_sourcing','market_sourcing'];
+const DELIVERY_MGMT = ['super_admin','admin','team_lead','packaging_team_lead'];
+const DELIVERY_FIELD = [...DELIVERY_MGMT, 'goods_driver', 'goods_turnboy', 'merchandiser'];
+const MFG_ALL = ['super_admin','admin','production_manager'];
 const ADMIN_ONLY = ['super_admin','admin'];
 
 const NAV_SECTIONS = [
   {
     label: 'Packaging',
     items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',        roles: PACKAGING  },
+      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',        roles: PACKAGING_PM },
       { to: '/lpos',      icon: FileText,        label: 'LPO Workflow',     roles: PACKAGING  },
       { to: '/invoices',  icon: Receipt,         label: 'Invoice Workflow', roles: PACKAGING  },
       { to: '/reports',   icon: BarChart3,       label: 'Reports',          roles: ADMIN_ONLY },
+    ],
+  },
+  {
+    label: 'Deliveries',
+    items: [
+      { to: '/deliveries',      icon: LayoutDashboard, label: 'Dashboard',  roles: DELIVERY_MGMT },
+      { to: '/deliveries/trip', icon: Truck,           label: 'Field Ops',  roles: DELIVERY_FIELD },
     ],
   },
   {
@@ -40,11 +52,25 @@ const NAV_SECTIONS = [
   {
     label: 'Fresh Produce',
     items: [
-      { to: '/fresh',          icon: LayoutDashboard,  label: 'Dashboard',    roles: FRESH_MGMT  },
-      { to: '/fresh/trip',     icon: Truck,            label: 'Field Ops',    roles: FRESH_FIELD },
-      { to: '/fresh/lpos',     icon: FileSpreadsheet,  label: 'LPOs & Invoices', roles: FRESH_FIELD },
-      { to: '/fresh/reports',  icon: BarChart2,        label: 'Reports',      roles: FRESH_MGMT  },
-      { to: '/fresh/vehicles', icon: Package,          label: 'Vehicles',     roles: ADMIN_ONLY  },
+      { to: '/fresh',               icon: LayoutDashboard,  label: 'Dashboard',     roles: FRESH_MGMT  },
+      { to: '/fresh/trip',          icon: Truck,            label: 'Field Ops',     roles: FRESH_FIELD },
+      { to: '/fresh/lpos',          icon: FileSpreadsheet,  label: 'Supplier LPOs', roles: FRESH_FIELD },
+      { to: '/fresh/customer-lpos', icon: ShoppingCart,     label: 'Customer LPOs', roles: FRESH_MGMT  },
+      { to: '/fresh/returns',       icon: RotateCcw,        label: 'Returns',       roles: FRESH_MGMT  },
+      { to: '/fresh/reports',       icon: BarChart2,        label: 'Reports',       roles: FRESH_MGMT  },
+      { to: '/fresh/vehicles',      icon: Package,          label: 'Vehicles',      roles: ADMIN_ONLY  },
+    ],
+  },
+  {
+    label: 'Manufacturing',
+    items: [
+      { to: '/manufacturing',           icon: Factory,         label: 'Dashboard',   roles: MFG_ALL    },
+      { to: '/manufacturing/products',  icon: Boxes,           label: 'Products',    roles: MFG_ALL    },
+      { to: '/manufacturing/materials', icon: Beaker,          label: 'Materials',   roles: MFG_ALL    },
+      { to: '/manufacturing/suppliers', icon: Building2,       label: 'Suppliers',   roles: MFG_ALL    },
+      { to: '/manufacturing/cycles',    icon: BarChart3,       label: 'Production',  roles: MFG_ALL    },
+      { to: '/manufacturing/pricing',   icon: Tag,             label: 'Pricing',     roles: ADMIN_ONLY },
+      { to: '/manufacturing/audit',     icon: History,         label: 'Cost Audit',  roles: MFG_ALL    },
     ],
   },
   {
@@ -69,6 +95,9 @@ const ROLE_LABELS = {
   turnboy:                   'Turnboy',
   farm_sourcing:             'Farm Sourcing',
   market_sourcing:           'Market Sourcing',
+  goods_driver:              'Goods Driver',
+  goods_turnboy:             'Goods Turnboy',
+  production_manager:        'Production Mgr',
   viewer:                    'Viewer',
 };
 
