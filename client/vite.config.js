@@ -1,9 +1,3 @@
-// client/vite.config.js
-// FIXED: Added manualChunks to isolate jsPDF and jspdf-autotable into their
-// own async chunk. This prevents the "r is not a function" TypeError that
-// occurred when jsPDF's module-level side-effects ran before React's chunk
-// was fully initialised on first page load of the manufacturing module.
-
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -46,14 +40,31 @@ export default defineConfig({
       workbox: {
         // SPA navigation fallback so deep links work offline
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallbackDenylist: [/^\/api\//, /^\/internal\//],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,
 
-        globPatterns: ['**/*.{js,css,html,svg,png,jpg,jpeg,webp,woff,woff2,ico,json}'],
+        // Precache the built shell — but keep JS/CSS revalidating via runtime
+        // rules below so a stale precache can't serve the wrong chunk after a
+        // deploy.
+        globPatterns: ['**/*.{html,svg,png,jpg,jpeg,webp,woff,woff2,ico,json}'],
 
         runtimeCaching: [
+          // App JS/CSS — NetworkFirst with a fast timeout. Online users always
+          // get the freshly-deployed bundle; offline users fall back to cache.
+          {
+            urlPattern: ({ url, request }) =>
+              url.origin === self.location.origin &&
+              (request.destination === 'script' || request.destination === 'style' || /\.(?:js|css)$/.test(url.pathname)),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'rekker-assets',
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
           // Google fonts CSS
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -87,30 +98,6 @@ export default defineConfig({
       },
     }),
   ],
-
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          // Isolate jsPDF and jspdf-autotable into a dedicated async chunk.
-          // This ensures their module-level side-effects (which include
-          // defining global state) always execute after React's runtime is
-          // ready, eliminating the "r is not a function" init-order race.
-          if (id.includes('jspdf') || id.includes('jspdf-autotable')) {
-            return 'pdf-lib';
-          }
-          // Keep React and React-DOM together in a stable vendor chunk
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
-            return 'react-vendor';
-          }
-          // Recharts gets its own chunk (large dep used only in reports)
-          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-')) {
-            return 'charts-vendor';
-          }
-        },
-      },
-    },
-  },
 
   resolve: {
     alias: {

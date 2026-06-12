@@ -16,6 +16,15 @@ router.get('/', protect, async (req, res) => {
   catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// Low-stock list
+router.get('/low-stock', protect, async (req, res) => {
+  try {
+    const list = await Material.find({ minimumStock: { $gt: 0 } }).populate(POPULATE);
+    const low = list.filter(m => Number(m.currentStock || 0) <= Number(m.minimumStock || 0));
+    res.json(low);
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 // Aggregate cost-change audit across ALL materials (for the audit page)
 router.get('/audit/all', protect, async (req, res) => {
   try {
@@ -42,11 +51,14 @@ router.get('/:id/history', protect, async (req, res) => {
 
 router.post('/', protect, authorize(...MANAGE), async (req, res) => {
   try {
-    const { name, sku, category, unit, currentSupplier, currentUnitPrice, notes } = req.body;
+    const { name, sku, category, unit, currentSupplier, currentUnitPrice, currentStock, minimumStock, reorderQty, notes } = req.body;
     const m = await Material.create({
       name, sku, category, unit,
       currentSupplier: currentSupplier || null,
       currentUnitPrice: Number(currentUnitPrice) || 0,
+      currentStock: Number(currentStock) || 0,
+      minimumStock: Number(minimumStock) || 0,
+      reorderQty: Number(reorderQty) || 0,
       notes, createdBy: req.user._id,
     });
     if (m.currentUnitPrice > 0) {
@@ -67,7 +79,7 @@ router.put('/:id', protect, authorize(...MANAGE), async (req, res) => {
     if (!m) return res.status(404).json({ message: 'Material not found' });
 
     const prevPrice = Number(m.currentUnitPrice || 0);
-    const fields = ['name', 'sku', 'category', 'unit', 'notes', 'currentSupplier', 'isActive'];
+    const fields = ['name', 'sku', 'category', 'unit', 'notes', 'currentSupplier', 'isActive', 'minimumStock', 'reorderQty'];
     fields.forEach(k => { if (req.body[k] !== undefined) m[k] = req.body[k]; });
 
     let priceChanged = false;
@@ -87,10 +99,25 @@ router.put('/:id', protect, authorize(...MANAGE), async (req, res) => {
         unitPrice: m.currentUnitPrice, previousPrice: prevPrice, deltaPct,
         reason: req.body.priceReason || 'updated', changedBy: req.user._id,
       });
-      // Recompute downstream product costs and emit notifications
       await recomputeProductsUsingMaterial(m._id, req.user);
     }
 
+    await m.populate(POPULATE);
+    res.json(m);
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// Manual stock adjustment (audit reason required)
+router.post('/:id/adjust-stock', protect, authorize(...MANAGE), async (req, res) => {
+  try {
+    const { delta, reason } = req.body;
+    const m = await Material.findById(req.params.id);
+    if (!m) return res.status(404).json({ message: 'Not found' });
+    const d = Number(delta);
+    if (!Number.isFinite(d) || d === 0) return res.status(400).json({ message: 'delta must be non-zero' });
+    if (!reason || !reason.trim()) return res.status(400).json({ message: 'reason required' });
+    m.currentStock = Math.max(0, Number(m.currentStock || 0) + d);
+    await m.save();
     await m.populate(POPULATE);
     res.json(m);
   } catch (err) { res.status(500).json({ message: err.message }); }

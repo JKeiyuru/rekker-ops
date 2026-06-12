@@ -10,6 +10,7 @@ const schema = new mongoose.Schema(
     volume:      { type: String, default: '' },      // e.g. "500 ml"
     unitDescription: { type: String, default: '' },  // e.g. "bottle"
     piecesPerCarton: { type: Number, default: 1, min: 1 },
+    vatRate:     { type: Number, default: 0.16 },    // 0.16 = 16%
 
     // Cached computed cost (per single unit)
     currentUnitCost: { type: Number, default: 0 },

@@ -1,42 +1,44 @@
 // client/src/App.jsx
-// FIXED: Manufacturing routes now wrapped in ManufacturingErrorBoundary to
-// prevent blank screen caused by jsPDF bundle-init race ("r is not a function").
 
 import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
-import AppLayout                  from '@/components/layout/AppLayout';
-import ProtectedRoute             from '@/components/ProtectedRoute';
-import ManufacturingErrorBoundary from '@/components/ManufacturingErrorBoundary';
-import Login                      from '@/pages/Login';
-import Dashboard                  from '@/pages/Dashboard';
-import LPOsPage                   from '@/pages/LPOsPage';
-import InvoicePage                from '@/pages/InvoicePage';
-import ReportsPage                from '@/pages/ReportsPage';
-import UsersPage                  from '@/pages/UsersPage';
-import PersonsPage                from '@/pages/PersonsPage';
-import BranchesPage               from '@/pages/BranchesPage';
-import CheckInPage                from '@/pages/CheckInPage';
-import AssignmentsPage            from '@/pages/AssignmentsPage';
-import AttendancePage             from '@/pages/AttendancePage';
-import MerchandiserDashboard      from '@/pages/MerchandiserDashboard';
-import FreshDashboard             from '@/pages/fresh/FreshDashboard';
-import TripWorkflow               from '@/pages/fresh/TripWorkflow';
-import FreshLPOPage               from '@/pages/fresh/FreshLPOPage';
-import FreshReportsPage           from '@/pages/fresh/FreshReportsPage';
-import VehiclesPage               from '@/pages/fresh/VehiclesPage';
-import FreshCustomerLPOsPage      from '@/pages/fresh/FreshCustomerLPOsPage';
-import FreshReturnsPage           from '@/pages/fresh/FreshReturnsPage';
-import DeliveriesDashboard        from '@/pages/deliveries/DeliveriesDashboard';
-import DeliveryTripWorkflow       from '@/pages/deliveries/DeliveryTripWorkflow';
-import ManufacturingDashboard     from '@/pages/manufacturing/ManufacturingDashboard';
-import ProductsPage               from '@/pages/manufacturing/ProductsPage';
-import ProductDetailPage          from '@/pages/manufacturing/ProductDetailPage';
-import MaterialsPage              from '@/pages/manufacturing/MaterialsPage';
-import SuppliersPage              from '@/pages/manufacturing/SuppliersPage';
-import ProductionCyclesPage       from '@/pages/manufacturing/ProductionCyclesPage';
-import PricingPage                from '@/pages/manufacturing/PricingPage';
-import CostAuditPage              from '@/pages/manufacturing/CostAuditPage';
+import AppLayout             from '@/components/layout/AppLayout';
+import ProtectedRoute        from '@/components/ProtectedRoute';
+import Login                 from '@/pages/Login';
+import Dashboard             from '@/pages/Dashboard';
+import LPOsPage              from '@/pages/LPOsPage';
+import InvoicePage           from '@/pages/InvoicePage';
+import ReportsPage           from '@/pages/ReportsPage';
+import UsersPage             from '@/pages/UsersPage';
+import PersonsPage           from '@/pages/PersonsPage';
+import BranchesPage          from '@/pages/BranchesPage';
+import CheckInPage           from '@/pages/CheckInPage';
+import AssignmentsPage       from '@/pages/AssignmentsPage';
+import AttendancePage        from '@/pages/AttendancePage';
+import MerchandiserDashboard from '@/pages/MerchandiserDashboard';
+import FreshDashboard        from '@/pages/fresh/FreshDashboard';
+import TripWorkflow          from '@/pages/fresh/TripWorkflow';
+import FreshLPOPage          from '@/pages/fresh/FreshLPOPage';
+import FreshReportsPage      from '@/pages/fresh/FreshReportsPage';
+import VehiclesPage          from '@/pages/fresh/VehiclesPage';
+// New
+import FreshCustomerLPOsPage from '@/pages/fresh/FreshCustomerLPOsPage';
+import FreshReturnsPage      from '@/pages/fresh/FreshReturnsPage';
+import DeliveriesDashboard   from '@/pages/deliveries/DeliveriesDashboard';
+import DeliveryTripWorkflow  from '@/pages/deliveries/DeliveryTripWorkflow';
+import ManufacturingDashboard from '@/pages/manufacturing/ManufacturingDashboard';
+import ProductsPage           from '@/pages/manufacturing/ProductsPage';
+import ProductDetailPage      from '@/pages/manufacturing/ProductDetailPage';
+import MaterialsPage          from '@/pages/manufacturing/MaterialsPage';
+import SuppliersPage          from '@/pages/manufacturing/SuppliersPage';
+import ProductionCyclesPage   from '@/pages/manufacturing/ProductionCyclesPage';
+import ProductionCycleDetailPage from '@/pages/manufacturing/ProductionCycleDetailPage';
+import GoodsReceiptsPage      from '@/pages/manufacturing/GoodsReceiptsPage';
+import PurchaseRecsPage       from '@/pages/manufacturing/PurchaseRecsPage';
+import WhatIfPage             from '@/pages/manufacturing/WhatIfPage';
+import PricingPage            from '@/pages/manufacturing/PricingPage';
+import CostAuditPage          from '@/pages/manufacturing/CostAuditPage';
 
 const ADMIN        = ['super_admin','admin'];
 const PACKAGING    = ['super_admin','admin','team_lead','packaging_team_lead','viewer'];
@@ -66,25 +68,10 @@ function RoleRedirect() {
 
 export default function App() {
   const { fetchMe, token } = useAuthStore();
-  useEffect(() => {
-    if (token) fetchMe();
-    else useAuthStore.setState({ loading: false });
-  }, [token]);
+  useEffect(() => { if (token) fetchMe(); else useAuthStore.setState({ loading: false }); }, [token]);
 
   const P = ({ children, roles }) => (
     <ProtectedRoute roles={roles}><AppLayout>{children}</AppLayout></ProtectedRoute>
-  );
-
-  // Wraps manufacturing pages so a bundle-init error shows a friendly retry
-  // screen instead of a blank page.
-  const MfgP = ({ children, roles }) => (
-    <ProtectedRoute roles={roles}>
-      <AppLayout>
-        <ManufacturingErrorBoundary>
-          {children}
-        </ManufacturingErrorBoundary>
-      </AppLayout>
-    </ProtectedRoute>
   );
 
   return (
@@ -117,15 +104,19 @@ export default function App() {
       <Route path="/deliveries"      element={<P roles={DELIVERY_MGMT}><DeliveriesDashboard /></P>} />
       <Route path="/deliveries/trip" element={<P roles={DELIVERY_FIELD}><DeliveryTripWorkflow /></P>} />
 
-      {/* Manufacturing — wrapped in ManufacturingErrorBoundary */}
-      <Route path="/manufacturing"              element={<MfgP roles={MFG_ALL}><ManufacturingDashboard /></MfgP>} />
-      <Route path="/manufacturing/products"     element={<MfgP roles={MFG_ALL}><ProductsPage /></MfgP>} />
-      <Route path="/manufacturing/products/:id" element={<MfgP roles={MFG_ALL}><ProductDetailPage /></MfgP>} />
-      <Route path="/manufacturing/materials"    element={<MfgP roles={MFG_ALL}><MaterialsPage /></MfgP>} />
-      <Route path="/manufacturing/suppliers"    element={<MfgP roles={MFG_ALL}><SuppliersPage /></MfgP>} />
-      <Route path="/manufacturing/cycles"       element={<MfgP roles={MFG_ALL}><ProductionCyclesPage /></MfgP>} />
-      <Route path="/manufacturing/pricing"      element={<MfgP roles={ADMIN}><PricingPage /></MfgP>} />
-      <Route path="/manufacturing/audit"        element={<MfgP roles={MFG_ALL}><CostAuditPage /></MfgP>} />
+      {/* Manufacturing */}
+      <Route path="/manufacturing"             element={<P roles={MFG_ALL}><ManufacturingDashboard /></P>} />
+      <Route path="/manufacturing/products"    element={<P roles={MFG_ALL}><ProductsPage /></P>} />
+      <Route path="/manufacturing/products/:id" element={<P roles={MFG_ALL}><ProductDetailPage /></P>} />
+      <Route path="/manufacturing/materials"   element={<P roles={MFG_ALL}><MaterialsPage /></P>} />
+      <Route path="/manufacturing/suppliers"   element={<P roles={MFG_ALL}><SuppliersPage /></P>} />
+      <Route path="/manufacturing/receipts"    element={<P roles={MFG_ALL}><GoodsReceiptsPage /></P>} />
+      <Route path="/manufacturing/cycles"      element={<P roles={MFG_ALL}><ProductionCyclesPage /></P>} />
+      <Route path="/manufacturing/cycles/:id"  element={<P roles={MFG_ALL}><ProductionCycleDetailPage /></P>} />
+      <Route path="/manufacturing/purchase"    element={<P roles={MFG_ALL}><PurchaseRecsPage /></P>} />
+      <Route path="/manufacturing/whatif"      element={<P roles={ADMIN}><WhatIfPage /></P>} />
+      <Route path="/manufacturing/pricing"     element={<P roles={ADMIN}><PricingPage /></P>} />
+      <Route path="/manufacturing/audit"       element={<P roles={MFG_ALL}><CostAuditPage /></P>} />
 
       {/* Admin */}
       <Route path="/users"    element={<P roles={ADMIN}><UsersPage /></P>} />

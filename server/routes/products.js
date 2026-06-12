@@ -6,7 +6,7 @@ const Product = require('../models/Product');
 const ProductBOM = require('../models/ProductBOM');
 const ProductPricing = require('../models/ProductPricing');
 const Material = require('../models/Material');
-const { recomputeProductCost, emitCostChangeIfChanged } = require('../services/manufacturingCost');
+const { emitCostChangeIfChanged } = require('../services/manufacturingCost');
 const { protect, authorize } = require('../middleware/auth');
 
 const MANAGE = ['super_admin', 'admin', 'production_manager'];
@@ -25,7 +25,7 @@ router.get('/:id', protect, async (req, res) => {
   try {
     const p = await Product.findById(req.params.id).populate(POPULATE);
     if (!p) return res.status(404).json({ message: 'Product not found' });
-    const boms = await ProductBOM.find({ product: p._id }).sort({ revision: -1 });
+    const boms = await ProductBOM.find({ product: p._id }).populate('entries.material','name unit').sort({ revision: -1 });
     const pricingHistory = await ProductPricing.find({ product: p._id }).populate('setBy', 'fullName').sort({ effectiveFrom: -1 });
     res.json({ product: p, bomHistory: boms, pricingHistory });
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -33,10 +33,11 @@ router.get('/:id', protect, async (req, res) => {
 
 router.post('/', protect, authorize(...MANAGE), async (req, res) => {
   try {
-    const { name, sku, category, volume, unitDescription, piecesPerCarton, notes } = req.body;
+    const { name, sku, category, volume, unitDescription, piecesPerCarton, vatRate, notes } = req.body;
     const p = await Product.create({
       name, sku, category, volume, unitDescription,
       piecesPerCarton: Number(piecesPerCarton) || 1,
+      vatRate: vatRate != null ? Number(vatRate) : 0.16,
       notes, createdBy: req.user._id,
     });
     res.status(201).json(p);
@@ -47,7 +48,7 @@ router.put('/:id', protect, authorize(...MANAGE), async (req, res) => {
   try {
     const p = await Product.findById(req.params.id);
     if (!p) return res.status(404).json({ message: 'Product not found' });
-    ['name','sku','category','volume','unitDescription','piecesPerCarton','notes','isActive'].forEach(k => {
+    ['name','sku','category','volume','unitDescription','piecesPerCarton','vatRate','notes','isActive'].forEach(k => {
       if (req.body[k] !== undefined) p[k] = req.body[k];
     });
     await p.save();
@@ -57,22 +58,32 @@ router.put('/:id', protect, authorize(...MANAGE), async (req, res) => {
 });
 
 // POST /api/products/:id/bom — save a new BOM revision
+// Body: { entries:[{material, qtyPerUnit, qtyPerBatch?, kind: 'raw'|'packaging'}],
+//         batchOutputQty, batchOutputUnit, laborCostPerUnit, packagingCostPerUnit, overheadCostPerUnit, notes }
 router.post('/:id/bom', protect, authorize(...MANAGE), async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
-    const { entries = [], laborCostPerUnit = 0, packagingCostPerUnit = 0, overheadCostPerUnit = 0, notes } = req.body;
+    const {
+      entries = [],
+      batchOutputQty = 1, batchOutputUnit = 'unit',
+      laborCostPerUnit = 0, packagingCostPerUnit = 0, overheadCostPerUnit = 0,
+      notes,
+    } = req.body;
 
-    // Snapshot material unit + price at save time
+    if (!entries.length) return res.status(400).json({ message: 'At least one BOM entry required' });
+
     const enriched = await Promise.all(entries.map(async (e) => {
       const m = await Material.findById(e.material);
       if (!m) throw new Error('Material not found');
       return {
         material: m._id,
         qtyPerUnit: Number(e.qtyPerUnit) || 0,
+        qtyPerBatch: Number(e.qtyPerBatch) || 0,
         unit: m.unit,
         unitPriceAtSave: Number(m.currentUnitPrice) || 0,
+        kind: e.kind === 'packaging' ? 'packaging' : 'raw',
       };
     }));
 
@@ -81,9 +92,15 @@ router.post('/:id/bom', protect, authorize(...MANAGE), async (req, res) => {
 
     const prevUnitCost = Number(product.currentUnitCost || 0);
 
+    // Mark previous revisions inactive (latest = active)
+    await ProductBOM.updateMany({ product: product._id }, { $set: { isActive: false } });
+
     const bom = await ProductBOM.create({
       product: product._id,
       revision,
+      isActive: true,
+      batchOutputQty: Number(batchOutputQty) || 1,
+      batchOutputUnit: batchOutputUnit || 'unit',
       entries: enriched,
       laborCostPerUnit: Number(laborCostPerUnit) || 0,
       packagingCostPerUnit: Number(packagingCostPerUnit) || 0,
@@ -102,24 +119,43 @@ router.post('/:id/bom', protect, authorize(...MANAGE), async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// Restore an older BOM revision as the active one
+router.post('/:id/bom/:bomId/activate', protect, authorize(...MANAGE), async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    const bom = await ProductBOM.findOne({ _id: req.params.bomId, product: product?._id });
+    if (!product || !bom) return res.status(404).json({ message: 'Not found' });
+    await ProductBOM.updateMany({ product: product._id }, { $set: { isActive: false } });
+    bom.isActive = true;
+    await bom.save();
+    const prev = Number(product.currentUnitCost || 0);
+    product.currentBOM = bom._id;
+    product.currentUnitCost = bom.totalUnitCost;
+    await product.save();
+    await emitCostChangeIfChanged(product, prev, bom.totalUnitCost, `BOM rev #${bom.revision} restored`, req.user);
+    res.json({ product, bom });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 // POST /api/products/:id/pricing — admin only sets selling price
 router.post('/:id/pricing', protect, authorize('super_admin', 'admin'), async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
-    const { unitPriceExclVAT, vatRate = 0.16, notes } = req.body;
+    const { unitPriceExclVAT, vatRate, notes } = req.body;
+    const vr = vatRate != null ? Number(vatRate) : Number(product.vatRate || 0.16);
     const excl = Number(unitPriceExclVAT);
     if (!(excl > 0)) return res.status(400).json({ message: 'unitPriceExclVAT must be > 0' });
 
-    const incl = excl * (1 + Number(vatRate));
+    const incl = excl * (1 + vr);
     const pcs  = Number(product.piecesPerCarton) || 1;
     const unitCost = Number(product.currentUnitCost || 0);
     const marginPct = excl > 0 ? ((excl - unitCost) / excl) * 100 : 0;
 
     const pricing = await ProductPricing.create({
       product: product._id,
-      vatRate: Number(vatRate),
+      vatRate: vr,
       unitPriceExclVAT: excl,
       unitPriceInclVAT: Number(incl.toFixed(4)),
       cartonPriceExclVAT: Number((excl * pcs).toFixed(4)),
@@ -132,6 +168,7 @@ router.post('/:id/pricing', protect, authorize('super_admin', 'admin'), async (r
     });
 
     product.currentPricing = pricing._id;
+    product.vatRate = vr;
     await product.save();
     res.status(201).json({ product, pricing });
   } catch (err) { res.status(500).json({ message: err.message }); }

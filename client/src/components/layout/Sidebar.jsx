@@ -7,6 +7,7 @@ import {
   MapPin, CalendarCheck, ClipboardList, Truck,
   Package, FileSpreadsheet, BarChart2, Factory,
   Beaker, Boxes, Tag, RotateCcw, ShoppingCart, History,
+  PackagePlus, ShoppingBag, Lightbulb,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/lib/utils';
@@ -64,13 +65,16 @@ const NAV_SECTIONS = [
   {
     label: 'Manufacturing',
     items: [
-      { to: '/manufacturing',           icon: Factory,         label: 'Dashboard',   roles: MFG_ALL    },
-      { to: '/manufacturing/products',  icon: Boxes,           label: 'Products',    roles: MFG_ALL    },
-      { to: '/manufacturing/materials', icon: Beaker,          label: 'Materials',   roles: MFG_ALL    },
-      { to: '/manufacturing/suppliers', icon: Building2,       label: 'Suppliers',   roles: MFG_ALL    },
-      { to: '/manufacturing/cycles',    icon: BarChart3,       label: 'Production',  roles: MFG_ALL    },
-      { to: '/manufacturing/pricing',   icon: Tag,             label: 'Pricing',     roles: ADMIN_ONLY },
-      { to: '/manufacturing/audit',     icon: History,         label: 'Cost Audit',  roles: MFG_ALL    },
+      { to: '/manufacturing',           icon: Factory,        label: 'Dashboard',    roles: MFG_ALL    },
+      { to: '/manufacturing/products',  icon: Boxes,          label: 'Products',     roles: MFG_ALL    },
+      { to: '/manufacturing/materials', icon: Beaker,         label: 'Materials',    roles: MFG_ALL    },
+      { to: '/manufacturing/suppliers', icon: Building2,      label: 'Suppliers',    roles: MFG_ALL    },
+      { to: '/manufacturing/receipts',  icon: PackagePlus,    label: 'Goods Receipts', roles: MFG_ALL  },
+      { to: '/manufacturing/cycles',    icon: BarChart3,      label: 'Production',   roles: MFG_ALL    },
+      { to: '/manufacturing/purchase',  icon: ShoppingBag,    label: 'Purchase Recs',roles: MFG_ALL    },
+      { to: '/manufacturing/pricing',   icon: Tag,            label: 'Pricing',      roles: ADMIN_ONLY },
+      { to: '/manufacturing/whatif',    icon: Lightbulb,      label: 'What-If',      roles: ADMIN_ONLY },
+      { to: '/manufacturing/audit',     icon: History,        label: 'Cost Audit',   roles: MFG_ALL    },
     ],
   },
   {

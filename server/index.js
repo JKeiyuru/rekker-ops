@@ -31,6 +31,8 @@ const materialSupplierRoutes = require('./routes/materialSuppliers');
 const materialRoutes         = require('./routes/materials');
 const productRoutes          = require('./routes/products');
 const productionCycleRoutes  = require('./routes/productionCycles');
+const goodsReceiptRoutes     = require('./routes/goodsReceipts');
+const mfgIntelRoutes         = require('./routes/mfgIntel');
 const notificationRoutes     = require('./routes/notifications');
 
 const markIncompleteSessions = require('./jobs/markIncompleteSessions');
@@ -80,6 +82,8 @@ app.use('/api/material-suppliers',  materialSupplierRoutes);
 app.use('/api/materials',           materialRoutes);
 app.use('/api/products',            productRoutes);
 app.use('/api/production-cycles',   productionCycleRoutes);
+app.use('/api/goods-receipts',      goodsReceiptRoutes);
+app.use('/api/mfg',                 mfgIntelRoutes);
 app.use('/api/notifications',       notificationRoutes);
 
 // ── Internal job endpoint ─────────────────────────────────────────────────────

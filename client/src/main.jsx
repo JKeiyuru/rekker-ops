@@ -28,9 +28,20 @@ function shouldRegisterSW() {
 }
 
 if (shouldRegisterSW()) {
+  // When a brand-new SW takes control of the page (i.e. after a deploy where
+  // we skipWaiting + clientsClaim), force a single hard reload so the running
+  // tab swaps to the freshly built JS/HTML. Without this, the page is left
+  // holding old in-memory chunks while the SW serves new ones → "r is not a
+  // function" type runtime errors on the next interaction.
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+
   registerSW({ immediate: true });
 } else if ('serviceWorker' in navigator) {
-  // Unregister any leftover SW so previews / dev don't serve stale HTML
   navigator.serviceWorker.getRegistrations()
     .then((regs) => regs.forEach((r) => r.unregister()))
     .catch(() => {});
