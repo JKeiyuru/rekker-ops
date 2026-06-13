@@ -16,6 +16,7 @@ import { format } from 'date-fns';
 import { exportProductionCyclePDF } from '@/lib/pdf';
 
 const OVERHEAD_TYPES = ['labor','water','electricity','transport','fuel','maintenance','other'];
+const money = (v) => `KES ${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function ProductionCycleDetailPage() {
   const { id } = useParams();
@@ -78,9 +79,18 @@ export default function ProductionCycleDetailPage() {
     if (e.kind === 'packaging') pack += lt; else raw += lt;
   });
   const ohTotal = overheads.reduce((s, o) => s + Number(o.amount || 0), 0);
-  const bomExtra = u * (Number(c.bomSnapshot?.laborCostPerUnit||0) + Number(c.bomSnapshot?.packagingCostPerUnit||0) + Number(c.bomSnapshot?.overheadCostPerUnit||0));
+  const bomLabor = u * Number(c.bomSnapshot?.laborCostPerUnit||0);
+  const bomExtraPackaging = u * Number(c.bomSnapshot?.packagingCostPerUnit||0);
+  const bomOverhead = u * Number(c.bomSnapshot?.overheadCostPerUnit||0);
+  const bomExtra = bomLabor + bomExtraPackaging + bomOverhead;
   const totalLive = raw + pack + bomExtra + ohTotal;
   const perUnit = u > 0 ? totalLive / u : 0;
+  const rawPerUnit = u > 0 ? raw / u : 0;
+  const packagingPerUnit = u > 0 ? (pack + bomExtraPackaging) / u : 0;
+  const laborPerUnit = u > 0 ? bomLabor / u : 0;
+  const overheadPerUnit = u > 0 ? (bomOverhead + ohTotal) / u : 0;
+  const litresProduced = c.targetOutputLitres && c.expectedUnits ? (Number(c.targetOutputLitres) / Number(c.expectedUnits)) * u : 0;
+  const costPerLitre = litresProduced > 0 ? totalLive / litresProduced : 0;
 
   return (
     <div className="space-y-6">
@@ -102,7 +112,7 @@ export default function ProductionCycleDetailPage() {
 
       {/* Materials & actuals */}
       <div className="rounded-xl border border-rekker-border p-4 space-y-3">
-        <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Beaker className="w-3.5 h-3.5" /> Materials consumed</p>
+        <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Beaker className="w-3.5 h-3.5" /> Actual material usage</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[600px]">
             <thead><tr className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground"><th className="text-left py-1">Material</th><th className="text-right">Per unit</th><th className="text-right">Planned</th><th className="text-right">Actual used</th><th className="text-right">Unit price</th><th className="text-right">Line cost</th></tr></thead>
@@ -172,8 +182,15 @@ export default function ProductionCycleDetailPage() {
           <div><p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Yield loss</p><p className={`text-xl font-bold ${(c.expectedUnits - Number(units||0)) > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>{Math.max(0, c.expectedUnits - Number(units||0))} ({c.expectedUnits>0 ? Math.max(0,(c.expectedUnits - Number(units||0))/c.expectedUnits*100).toFixed(1) : 0}%)</p></div>
           <div><p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Cost / unit (live)</p><p className="text-xl font-bold text-primary">KES {perUnit.toFixed(2)}</p></div>
         </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <CostTile label="Materials / unit" value={rawPerUnit} />
+          <CostTile label="Packaging / unit" value={packagingPerUnit} />
+          <CostTile label="Labor / unit" value={laborPerUnit} />
+          <CostTile label="Overheads / unit" value={overheadPerUnit} />
+          <CostTile label="Cost / litre" value={costPerLitre} muted={!litresProduced} />
+        </div>
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <p className="text-sm">Total cost: <span className="font-mono font-bold text-primary">KES {totalLive.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span> <span className="text-xs text-muted-foreground">(materials {raw.toFixed(2)} + packaging {pack.toFixed(2)} + overheads {ohTotal.toFixed(2)} + BOM extras {bomExtra.toFixed(2)})</span></p>
+          <p className="text-sm">Total cost: <span className="font-mono font-bold text-primary">{money(totalLive)}</span> <span className="text-xs text-muted-foreground">(raw {money(raw)} + packaging {money(pack + bomExtraPackaging)} + labor {money(bomLabor)} + overheads {money(bomOverhead + ohTotal)})</span></p>
           {!isLocked && (
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => persist('save')} disabled={saving}>{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save</Button>
@@ -183,6 +200,15 @@ export default function ProductionCycleDetailPage() {
         </div>
         <div className="space-y-1.5"><Label>Notes</Label><Textarea rows={2} disabled={isLocked} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
       </div>
+    </div>
+  );
+}
+
+function CostTile({ label, value, muted = false }) {
+  return (
+    <div className="rounded-lg border border-rekker-border bg-background/70 px-3 py-2 min-w-0">
+      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground leading-tight">{label}</p>
+      <p className={`font-mono font-bold mt-1 ${muted ? 'text-muted-foreground' : 'text-foreground'}`}>{muted ? '—' : money(value)}</p>
     </div>
   );
 }

@@ -97,7 +97,7 @@ export default function SuppliersPage() {
   const [score, setScore] = useState(null);
 
   const load = () => api.get('/material-suppliers').then((r) => setList(r.data || []));
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   const handleSaved = (s, isNew) => { if (isNew) setList((p) => [s, ...p]); else setList((p) => p.map((x) => x._id === s._id ? s : x)); };
   const remove = async (s) => { if (!window.confirm(`Delete ${s.name}?`)) return; await api.delete(`/material-suppliers/${s._id}`); setList((p) => p.filter((x) => x._id !== s._id)); toast.success('Deleted'); };

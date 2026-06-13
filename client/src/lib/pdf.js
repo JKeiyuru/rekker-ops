@@ -250,10 +250,10 @@ export function exportProductionCyclePDF(cycle) {
   const snap = cycle.bomSnapshot || {};
   const stats = [
     ['Units', cycle.unitsProduced ?? 0],
+    ['Output', cycle.targetOutputQty ? `${cycle.targetOutputQty} ${cycle.targetOutputUnit || ''}` : '—'],
     ['Cost/Unit', `KES ${Number(cycle.costPerUnit || snap.totalUnitCost || 0).toFixed(2)}`],
     ['Total Cost', `KES ${Number(cycle.totalCost || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`],
     ['Status', (cycle.status || '—').toUpperCase()],
-    ['Run By', cycle.runBy?.fullName || '—'],
   ];
   const w = doc.internal.pageSize.getWidth();
   const bw = (w - 28) / stats.length;
@@ -284,29 +284,37 @@ export function exportProductionCyclePDF(cycle) {
   // Materials table (BOM snapshot)
   const rows = (snap.entries || []).map((e) => [
     e.materialName || '—',
+    e.kind === 'packaging' ? 'Packaging' : 'Raw',
     `${Number(e.qtyPerUnit || 0)} ${e.unit || ''}`,
+    `${Number(e.qtyActual ?? e.qtyConsumed ?? 0).toFixed(2)} ${e.unit || ''}`,
     `KES ${Number(e.unitPrice || 0).toFixed(2)}`,
-    `KES ${Number(e.lineCost || 0).toFixed(2)}`,
+    `KES ${(Number(e.qtyActual ?? e.qtyConsumed ?? 0) * Number(e.unitPrice || 0)).toFixed(2)}`,
   ]);
   autoTable(doc, {
     startY: y,
-    head: [['Material', 'Qty / Unit', 'Unit Price', 'Cost / Unit']],
+    head: [['Material', 'Kind', 'Qty / Unit', 'Actual Used', 'Unit Price', 'Line Total']],
     body: rows,
     ...TABLE_STYLES,
   });
 
   // Cost breakdown
   const finalY = doc.lastAutoTable?.finalY || y + 20;
+  const units = Number(cycle.unitsProduced || cycle.expectedUnits || 0);
+  const rawTotal = Number(cycle.materialsCostActual || 0);
+  const packTotal = Number(cycle.packagingCostActual || 0) + (Number(snap.packagingCostPerUnit || 0) * units);
+  const laborTotal = Number(snap.laborCostPerUnit || 0) * units;
+  const overheadTotal = Number(cycle.overheadsTotal || 0) + (Number(snap.overheadCostPerUnit || 0) * units);
+  const per = (n) => units > 0 ? n / units : 0;
   const breakdown = [
-    ['Materials',  `KES ${Number(snap.materialsCostPerUnit || 0).toFixed(2)}`],
-    ['Labor',      `KES ${Number(snap.laborCostPerUnit     || 0).toFixed(2)}`],
-    ['Packaging',  `KES ${Number(snap.packagingCostPerUnit || 0).toFixed(2)}`],
-    ['Overhead',   `KES ${Number(snap.overheadCostPerUnit  || 0).toFixed(2)}`],
-    ['TOTAL / UNIT', `KES ${Number(snap.totalUnitCost || 0).toFixed(2)}`],
+    ['Raw materials',  `KES ${rawTotal.toFixed(2)}`, `KES ${per(rawTotal).toFixed(2)}`],
+    ['Packaging',     `KES ${packTotal.toFixed(2)}`, `KES ${per(packTotal).toFixed(2)}`],
+    ['Labor',         `KES ${laborTotal.toFixed(2)}`, `KES ${per(laborTotal).toFixed(2)}`],
+    ['Overheads',     `KES ${overheadTotal.toFixed(2)}`, `KES ${per(overheadTotal).toFixed(2)}`],
+    ['TOTAL',         `KES ${Number(cycle.totalCost || 0).toFixed(2)}`, `KES ${Number(cycle.costPerUnit || snap.totalUnitCost || 0).toFixed(2)}`],
   ];
   autoTable(doc, {
     startY: finalY + 6,
-    head: [['Cost component', 'Per unit']],
+    head: [['Cost component', 'Total', 'Per unit']],
     body: breakdown,
     ...TABLE_STYLES,
   });

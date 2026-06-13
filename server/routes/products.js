@@ -11,6 +11,20 @@ const { protect, authorize } = require('../middleware/auth');
 
 const MANAGE = ['super_admin', 'admin', 'production_manager'];
 
+function toLitres(qty, unit = '') {
+  const u = String(unit).toLowerCase().replace(/\./g, '').trim();
+  const n = Number(qty || 0);
+  if (!(n > 0)) return 0;
+  if (['l', 'lt', 'ltr', 'litre', 'litres', 'liter', 'liters'].includes(u)) return n;
+  if (['ml', 'millilitre', 'millilitres', 'milliliter', 'milliliters'].includes(u)) return n / 1000;
+  return 0;
+}
+
+function parseProductVolume(volume = '') {
+  const match = String(volume).toLowerCase().match(/([0-9]+(?:\.[0-9]+)?)\s*(ml|millilitres?|milliliters?|l|lt|ltr|litres?|liters?)/i);
+  return match ? toLitres(match[1], match[2]) : 0;
+}
+
 const POPULATE = [
   { path: 'currentBOM' },
   { path: 'currentPricing' },
@@ -67,19 +81,28 @@ router.post('/:id/bom', protect, authorize(...MANAGE), async (req, res) => {
 
     const {
       entries = [],
-      batchOutputQty = 1, batchOutputUnit = 'unit',
+      batchOutputQty, batchOutputUnit = 'unit',
+      formulaOutputQty = 0, formulaOutputUnit = '',
       laborCostPerUnit = 0, packagingCostPerUnit = 0, overheadCostPerUnit = 0,
       notes,
     } = req.body;
 
     if (!entries.length) return res.status(400).json({ message: 'At least one BOM entry required' });
 
+    const recipeLitres = toLitres(formulaOutputQty, formulaOutputUnit);
+    const unitLitres = parseProductVolume(product.volume);
+    const computedUnits = recipeLitres > 0 && unitLitres > 0 ? recipeLitres / unitLitres : 0;
+    const outputUnits = Number(batchOutputQty) > 0 ? Number(batchOutputQty) : (computedUnits > 0 ? computedUnits : 1);
+
     const enriched = await Promise.all(entries.map(async (e) => {
       const m = await Material.findById(e.material);
       if (!m) throw new Error('Material not found');
+      const qtyPerUnit = Number(e.qtyPerUnit) > 0
+        ? Number(e.qtyPerUnit)
+        : (Number(e.qtyPerBatch || 0) / outputUnits);
       return {
         material: m._id,
-        qtyPerUnit: Number(e.qtyPerUnit) || 0,
+        qtyPerUnit: Number(qtyPerUnit.toFixed(8)) || 0,
         qtyPerBatch: Number(e.qtyPerBatch) || 0,
         unit: m.unit,
         unitPriceAtSave: Number(m.currentUnitPrice) || 0,
@@ -99,7 +122,10 @@ router.post('/:id/bom', protect, authorize(...MANAGE), async (req, res) => {
       product: product._id,
       revision,
       isActive: true,
-      batchOutputQty: Number(batchOutputQty) || 1,
+      formulaOutputQty: Number(formulaOutputQty) || 0,
+      formulaOutputUnit: formulaOutputUnit || '',
+      outputVolumeLitres: recipeLitres,
+      batchOutputQty: outputUnits,
       batchOutputUnit: batchOutputUnit || 'unit',
       entries: enriched,
       laborCostPerUnit: Number(laborCostPerUnit) || 0,

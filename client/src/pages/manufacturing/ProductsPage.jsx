@@ -63,7 +63,7 @@ export default function ProductsPage() {
   const [edit, setEdit] = useState(null);
 
   const load = () => api.get('/products').then((r) => setList(r.data || []));
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   const handleSaved = (p, isNew) => { if (isNew) setList((x) => [p, ...x]); else setList((x) => x.map((y) => y._id === p._id ? p : y)); };
   const remove = async (p) => { if (!window.confirm(`Delete ${p.name}?`)) return; await api.delete(`/products/${p._id}`); setList((x) => x.filter((y) => y._id !== p._id)); toast.success('Deleted'); };

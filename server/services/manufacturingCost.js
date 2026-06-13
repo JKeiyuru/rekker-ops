@@ -45,17 +45,19 @@ async function recomputeProductsUsingMaterial(materialId, actor) {
     const prevCost = Number(product.currentUnitCost || 0);
 
     // Refresh price snapshots on the *current* BOM entries
-    let mat = 0;
+    let raw = 0, pack = 0;
     for (const e of bom.entries) {
       const m = await Material.findById(e.material);
       if (!m) continue;
       e.unitPriceAtSave = Number(m.currentUnitPrice || 0);
       e.unit = m.unit;
       e.lineCost = Number(e.qtyPerUnit || 0) * e.unitPriceAtSave;
-      mat += e.lineCost;
+      if (e.kind === 'packaging') pack += e.lineCost;
+      else raw += e.lineCost;
     }
-    bom.materialsCostPerUnit = mat;
-    bom.totalUnitCost = mat
+    bom.materialsCostPerUnit = raw;
+    bom.packagingFromBOMPerUnit = pack;
+    bom.totalUnitCost = raw + pack
       + Number(bom.laborCostPerUnit || 0)
       + Number(bom.packagingCostPerUnit || 0)
       + Number(bom.overheadCostPerUnit || 0);

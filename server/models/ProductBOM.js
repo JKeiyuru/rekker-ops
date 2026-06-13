@@ -22,9 +22,15 @@ const schema = new mongoose.Schema(
     revision:     { type: Number, default: 1 },
     isActive:     { type: Boolean, default: true },
 
-    // Batch basis: e.g. "this recipe produces 400 units"
+    // Formula basis: e.g. "this recipe produces 200 L", which becomes
+    // 400 sellable units for a 500ml product.
+    formulaOutputQty:  { type: Number, default: 0 },
+    formulaOutputUnit: { type: String, default: '' },
+    outputVolumeLitres:{ type: Number, default: 0 },
+
+    // Sellable-unit basis used for costing and stock deduction.
     batchOutputQty:  { type: Number, default: 1 },
-    batchOutputUnit: { type: String, default: 'unit' },  // unit, L, kg, bottle…
+    batchOutputUnit: { type: String, default: 'unit' },
 
     entries:      { type: [bomEntrySchema], default: [] },
 

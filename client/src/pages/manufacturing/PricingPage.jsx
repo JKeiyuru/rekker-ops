@@ -67,7 +67,7 @@ export default function PricingPage() {
   const [editing, setEditing] = useState(null);
 
   const load = () => api.get('/products').then((r) => setList(r.data || []));
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   const onSaved = (p) => setList((x) => x.map((y) => y._id === p._id ? p : y));
 

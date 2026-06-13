@@ -11,7 +11,7 @@ const { protect, authorize } = require('../middleware/auth');
 const MANAGE = ['super_admin', 'admin', 'production_manager'];
 
 const POPULATE = [
-  { path: 'product', select: 'name sku volume piecesPerCarton' },
+  { path: 'product', select: 'name sku volume unitDescription piecesPerCarton' },
   { path: 'runBy',   select: 'fullName' },
   { path: 'bom',     select: 'revision' },
 ];
@@ -26,6 +26,18 @@ function genBatchNumber() {
   const d = new Date();
   return `B${String(d.getFullYear()).slice(-2)}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;
 }
+function toLitres(qty, unit = '') {
+  const u = String(unit).toLowerCase().replace(/\./g, '').trim();
+  const n = Number(qty || 0);
+  if (!(n > 0)) return 0;
+  if (['l','lt','ltr','litre','litres','liter','liters'].includes(u)) return n;
+  if (['ml','millilitre','millilitres','milliliter','milliliters'].includes(u)) return n / 1000;
+  return 0;
+}
+function parseProductVolume(volume = '') {
+  const match = String(volume).toLowerCase().match(/([0-9]+(?:\.[0-9]+)?)\s*(ml|millilitres?|milliliters?|l|lt|ltr|litres?|liters?)/i);
+  return match ? toLitres(match[1], match[2]) : 0;
+}
 
 router.get('/', protect, async (req, res) => {
   try {
@@ -39,15 +51,6 @@ router.get('/', protect, async (req, res) => {
       if (endDate)   { const e = new Date(endDate); e.setHours(23,59,59,999); filter.startedAt.$lte = e; }
     }
     res.json(await Cycle.find(filter).populate(POPULATE).sort({ startedAt: -1 }).limit(500));
-  } catch (err) { res.status(500).json({ message: err.message }); }
-});
-
-router.get('/:id', protect, async (req, res) => {
-  try {
-    const c = await Cycle.findById(req.params.id).populate(POPULATE)
-      .populate('bomSnapshot.entries.material', 'name sku unit currentStock');
-    if (!c) return res.status(404).json({ message: 'Not found' });
-    res.json(c);
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
@@ -78,16 +81,28 @@ router.get('/preview/:productId/:units', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+router.get('/:id', protect, async (req, res) => {
+  try {
+    const c = await Cycle.findById(req.params.id).populate(POPULATE)
+      .populate('bomSnapshot.entries.material', 'name sku unit currentStock');
+    if (!c) return res.status(404).json({ message: 'Not found' });
+    res.json(c);
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 // Start a cycle — snapshots BOM and deducts stock (allowStockNegative=true bypasses guard)
 router.post('/', protect, authorize(...MANAGE), async (req, res) => {
   try {
-    const { product, expectedUnits, notes, cycleNumber, batchNumber, allowStockNegative } = req.body;
+    const { product, expectedUnits, targetOutputQty, targetOutputUnit, notes, cycleNumber, batchNumber, allowStockNegative } = req.body;
     const p = await Product.findById(product).populate('currentBOM');
     if (!p) return res.status(404).json({ message: 'Product not found' });
     if (!p.currentBOM) return res.status(400).json({ message: 'Product has no BOM yet — save a BOM first' });
 
     const bom = p.currentBOM;
-    const units = Math.max(0, Number(expectedUnits) || 0);
+    const targetLitres = toLitres(targetOutputQty, targetOutputUnit);
+    const unitLitres = parseProductVolume(p.volume);
+    const unitsFromVolume = targetLitres > 0 && unitLitres > 0 ? targetLitres / unitLitres : 0;
+    const units = Math.max(0, Number(expectedUnits) || unitsFromVolume || 0);
 
     const populated = await ProductBOM.findById(bom._id).populate('entries.material');
 
@@ -129,6 +144,9 @@ router.post('/', protect, authorize(...MANAGE), async (req, res) => {
       bom: bom._id,
       bomRevision: bom.revision,
       expectedUnits: units,
+      targetOutputQty: Number(targetOutputQty) || 0,
+      targetOutputUnit: targetOutputUnit || '',
+      targetOutputLitres: targetLitres,
       unitsProduced: 0,
       bomSnapshot: {
         entries: snapEntries,

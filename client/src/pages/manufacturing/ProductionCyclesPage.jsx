@@ -15,15 +15,35 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { exportProductionCyclePDF } from '@/lib/pdf';
 
+const toLitres = (qty, unit = '') => {
+  const u = String(unit).toLowerCase().replace(/\./g, '').trim();
+  const n = Number(qty || 0);
+  if (!(n > 0)) return 0;
+  if (['l','lt','ltr','litre','litres','liter','liters'].includes(u)) return n;
+  if (['ml','millilitre','millilitres','milliliter','milliliters'].includes(u)) return n / 1000;
+  return 0;
+};
+
+const parseProductVolume = (volume = '') => {
+  const match = String(volume).toLowerCase().match(/([0-9]+(?:\.[0-9]+)?)\s*(ml|millilitres?|milliliters?|l|lt|ltr|litres?|liters?)/i);
+  return match ? toLitres(match[1], match[2]) : 0;
+};
+
 function StartCycleModal({ open, onClose, products, onStarted }) {
   const [product, setProduct] = useState('');
-  const [expected, setExpected] = useState(0);
+  const [targetQty, setTargetQty] = useState(200);
+  const [targetUnit, setTargetUnit] = useState('L');
   const [notes, setNotes] = useState('');
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [override, setOverride] = useState(false);
 
-  useEffect(() => { if (open) { setProduct(''); setExpected(0); setNotes(''); setPreview(null); setOverride(false); } }, [open]);
+  useEffect(() => { if (open) { setProduct(''); setTargetQty(200); setTargetUnit('L'); setNotes(''); setPreview(null); setOverride(false); } }, [open]);
+
+  const selected = products.find(p => p._id === product);
+  const unitLitres = parseProductVolume(selected?.volume || '');
+  const targetLitres = toLitres(targetQty, targetUnit);
+  const expected = targetLitres > 0 && unitLitres > 0 ? targetLitres / unitLitres : Number(targetQty || 0);
 
   useEffect(() => {
     if (product && Number(expected) > 0) {
@@ -36,7 +56,7 @@ function StartCycleModal({ open, onClose, products, onStarted }) {
     if (!(Number(expected) > 0)) return toast.error('Expected units must be > 0');
     setLoading(true);
     try {
-      const res = await api.post('/production-cycles', { product, expectedUnits: Number(expected), notes, allowStockNegative: override });
+      const res = await api.post('/production-cycles', { product, expectedUnits: Number(expected), targetOutputQty: Number(targetQty) || 0, targetOutputUnit: targetUnit, notes, allowStockNegative: override });
       onStarted(res.data); toast.success(`Cycle ${res.data.cycleNumber} started · Batch ${res.data.batchNumber}`); onClose();
     } catch (e) {
       const data = e.response?.data;
@@ -58,7 +78,11 @@ function StartCycleModal({ open, onClose, products, onStarted }) {
               <SelectContent>{products.filter(p => p.currentBOM).map(p => <SelectItem key={p._id} value={p._id}>{p.name} {p.volume && `· ${p.volume}`} — KES {Number(p.currentUnitCost||0).toFixed(2)}/unit</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5"><Label>Expected units to produce</Label><Input type="number" min="0" value={expected} onChange={(e) => setExpected(e.target.value)} /></div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1.5"><Label>Volume to produce</Label><Input type="number" min="0" step="any" value={targetQty} onChange={(e) => setTargetQty(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label>Volume unit</Label><Input value={targetUnit} onChange={(e) => setTargetUnit(e.target.value)} placeholder="L" /></div>
+            <div className="rounded-lg border border-rekker-border bg-accent/30 px-3 py-2"><p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Sellable units</p><p className="text-lg font-bold">{Number(expected || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</p></div>
+          </div>
 
           {preview && (
             <div className="rounded-xl border border-rekker-border p-3 space-y-2">
@@ -102,7 +126,7 @@ export default function ProductionCyclesPage() {
   const [open, setOpen] = useState(false);
 
   const load = () => Promise.all([api.get('/production-cycles'), api.get('/products')]).then(([c, p]) => { setList(c.data || []); setProducts(p.data || []); });
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   return (
     <div className="space-y-6">

@@ -166,7 +166,7 @@ export default function FreshReturnsPage() {
       .then((r) => setReturns(r.data || []))
       .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   const handleSaved = (created) => setReturns((p) => [created, ...p]);
 

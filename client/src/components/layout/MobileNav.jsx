@@ -6,6 +6,7 @@ import {
   LayoutDashboard, FileText, MapPin, Truck, Users,
   MoreHorizontal, Receipt, CalendarCheck, ClipboardList,
   BarChart2, FileSpreadsheet, LogOut, Building2, UserCog, Package,
+  Factory, Boxes, Beaker, PackagePlus, BarChart3,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/lib/utils';
@@ -52,6 +53,14 @@ function getPrimaryNav(role) {
       { to: '/invoices', icon: Receipt,  label: 'Invoices' },
     ];
   }
+  if (role === 'production_manager') {
+    return [
+      { to: '/manufacturing',           icon: Factory,     label: 'MFG'       },
+      { to: '/manufacturing/products',  icon: Boxes,       label: 'Products'  },
+      { to: '/manufacturing/materials', icon: Beaker,      label: 'Materials' },
+      { to: '/manufacturing/cycles',    icon: BarChart3,   label: 'Runs'      },
+    ];
+  }
   // admin / super_admin / team_lead / viewer
   return [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Home'     },
@@ -85,6 +94,9 @@ export default function MobileNav({ pendingBranches = 0 }) {
               { to: '/fresh/vehicles', icon: Package, label: 'Vehicles', roles: ADMIN_ONLY },
               { to: '/reports',  icon: BarChart2, label: 'Reports',  roles: ADMIN_ONLY },
               { to: '/fresh/reports', icon: BarChart2, label: 'Fresh Reports', roles: ['super_admin','admin','team_lead','fresh_team_lead'] },
+              { to: '/manufacturing', icon: Factory, label: 'Manufacturing', roles: ['super_admin','admin','production_manager'] },
+              { to: '/manufacturing/receipts', icon: PackagePlus, label: 'Goods Receipts', roles: ['super_admin','admin','production_manager'] },
+              { to: '/manufacturing/purchase', icon: Package, label: 'Purchase Recs', roles: ['super_admin','admin','production_manager'] },
             ].filter(i => i.roles.includes(user?.role)).map(({ to, icon: Icon, label }) => (
               <NavLink key={to} to={to} onClick={() => setMoreOpen(false)}
                 className={({ isActive }) => cn(

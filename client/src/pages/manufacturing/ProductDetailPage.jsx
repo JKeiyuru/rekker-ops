@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, X, Save, Loader2, Beaker, Tag, RotateCcw, Box } from 'lucide-react';
+import { ArrowLeft, Plus, X, Save, Loader2, Beaker, Tag, RotateCcw, Box, Calculator, Scale } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +16,23 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 
 const blankEntry = (kind = 'raw') => ({ material: '', qtyPerUnit: 0, qtyPerBatch: 0, kind });
+
+const toLitres = (qty, unit = '') => {
+  const u = String(unit).toLowerCase().replace(/\./g, '').trim();
+  const n = Number(qty || 0);
+  if (!(n > 0)) return 0;
+  if (['l', 'lt', 'ltr', 'litre', 'litres', 'liter', 'liters'].includes(u)) return n;
+  if (['ml', 'millilitre', 'millilitres', 'milliliter', 'milliliters'].includes(u)) return n / 1000;
+  return 0;
+};
+
+const parseProductVolume = (volume = '') => {
+  const match = String(volume).toLowerCase().match(/([0-9]+(?:\.[0-9]+)?)\s*(ml|millilitres?|milliliters?|l|lt|ltr|litres?|liters?)/i);
+  if (!match) return { label: volume || 'unit', litres: 0 };
+  return { label: `${match[1]}${match[2]}`, litres: toLitres(match[1], match[2]) };
+};
+
+const money = (v) => `KES ${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function ProductDetailPage() {
   const { id } = useParams();
@@ -42,8 +59,8 @@ export default function ProductDetailPage() {
     const cur = d.data.bomHistory?.[0];
     if (cur) {
       setEntries(cur.entries.map((e) => ({ material: e.material?._id || e.material, qtyPerUnit: e.qtyPerUnit, qtyPerBatch: e.qtyPerBatch || 0, kind: e.kind || 'raw' })));
-      setBatchOutputQty(cur.batchOutputQty || 1);
-      setBatchOutputUnit(cur.batchOutputUnit || 'unit');
+      setBatchOutputQty(cur.formulaOutputQty || cur.batchOutputQty || 1);
+      setBatchOutputUnit(cur.formulaOutputUnit || cur.batchOutputUnit || 'unit');
       setLabor(cur.laborCostPerUnit); setPackaging(cur.packagingCostPerUnit); setOverhead(cur.overheadCostPerUnit);
     } else setEntries([blankEntry('raw')]);
     setLoading(false);
@@ -51,14 +68,19 @@ export default function ProductDetailPage() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
   const matMap = Object.fromEntries(materials.map((m) => [m._id, m]));
-  // Auto compute qtyPerUnit from batch if batchOutputQty > 0
+  const productVolume = parseProductVolume(product?.volume || '');
+  const formulaLitres = toLitres(batchOutputQty, batchOutputUnit);
+  const sellableUnits = formulaLitres > 0 && productVolume.litres > 0 ? formulaLitres / productVolume.litres : Number(batchOutputQty || 0);
+  const outputUnits = sellableUnits > 0 ? sellableUnits : 1;
+  // Auto compute qtyPerUnit from the formula batch if output units > 0
   const qtyPerUnitFor = (e) => {
-    if (Number(e.qtyPerBatch) > 0 && Number(batchOutputQty) > 0) return Number(e.qtyPerBatch) / Number(batchOutputQty);
+    if (Number(e.qtyPerBatch) > 0 && outputUnits > 0) return Number(e.qtyPerBatch) / outputUnits;
     return Number(e.qtyPerUnit || 0);
   };
   const rawCost = entries.filter(e => e.kind !== 'packaging').reduce((a, e) => a + qtyPerUnitFor(e) * Number(matMap[e.material]?.currentUnitPrice || 0), 0);
   const packCost = entries.filter(e => e.kind === 'packaging').reduce((a, e) => a + qtyPerUnitFor(e) * Number(matMap[e.material]?.currentUnitPrice || 0), 0);
   const unitCost = rawCost + packCost + Number(labor || 0) + Number(packaging || 0) + Number(overhead || 0);
+  const costPerLitreMaterials = productVolume.litres > 0 ? rawCost / productVolume.litres : 0;
 
   const updateEntry = (i, patch) => setEntries((p) => p.map((e, idx) => idx === i ? { ...e, ...patch } : e));
   const addEntry = (kind) => setEntries((p) => [...p, blankEntry(kind)]);
@@ -69,8 +91,10 @@ export default function ProductDetailPage() {
     setSaving(true);
     try {
       const res = await api.post(`/products/${id}/bom`, {
-        batchOutputQty: Number(batchOutputQty) || 1,
-        batchOutputUnit,
+        formulaOutputQty: Number(batchOutputQty) || 0,
+        formulaOutputUnit: batchOutputUnit,
+        batchOutputQty: outputUnits,
+        batchOutputUnit: product.unitDescription || 'unit',
         entries: entries.map((e) => ({
           material: e.material,
           qtyPerUnit: qtyPerUnitFor(e),
@@ -126,10 +150,21 @@ export default function ProductDetailPage() {
         </TabsList>
 
         <TabsContent value="bom" className="space-y-4">
-          <div className="rounded-xl border border-rekker-border p-4 grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label>Batch produces (qty)</Label><Input type="number" min="0" step="any" value={batchOutputQty} onChange={(e) => setBatchOutputQty(e.target.value)} /></div>
-            <div className="space-y-1.5"><Label>Output unit</Label><Input value={batchOutputUnit} onChange={(e) => setBatchOutputUnit(e.target.value)} placeholder="bottle, unit, L…" /></div>
-            <p className="col-span-2 text-[10px] text-muted-foreground">Enter quantities <em>per batch</em> and the system divides by batch output to get per-unit. Or leave batch qty at 0 and fill per-unit directly.</p>
+          <div className="rounded-xl border border-rekker-border p-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"><Scale className="w-4 h-4 text-primary" /></div>
+              <div>
+                <p className="text-sm font-semibold">Formula basis</p>
+                <p className="text-xs text-muted-foreground">Enter the recipe the way production measures it, e.g. 200 L of soap. The system converts it into sellable units using this product’s unit size: <span className="font-mono text-primary">{product.volume || 'set product volume first'}</span>.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="space-y-1.5"><Label>Formula produces</Label><Input type="number" min="0" step="any" value={batchOutputQty} onChange={(e) => setBatchOutputQty(e.target.value)} placeholder="200" /></div>
+              <div className="space-y-1.5"><Label>Formula unit</Label><Input value={batchOutputUnit} onChange={(e) => setBatchOutputUnit(e.target.value)} placeholder="L" /></div>
+              <div className="rounded-lg border border-rekker-border bg-accent/30 px-3 py-2"><p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Sellable units</p><p className="text-lg font-bold">{Number(outputUnits || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</p></div>
+              <div className="rounded-lg border border-rekker-border bg-accent/30 px-3 py-2"><p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Unit size</p><p className="text-lg font-bold">{product.volume || '—'}</p></div>
+            </div>
+            <p className="text-[10px] text-muted-foreground">For materials, fill Qty used in this full formula. Qty/unit is calculated automatically but can still be entered directly for special cases.</p>
           </div>
 
           {/* Raw materials */}
@@ -140,7 +175,7 @@ export default function ProductDetailPage() {
             </div>
             <div className="space-y-2">
               {entries.map((e, i) => e.kind !== 'packaging' && (
-                <BOMRow key={i} e={e} i={i} matMap={matMap} materials={materials.filter(m=>m.category!=='packaging')} batch={batchOutputQty} updateEntry={updateEntry} removeEntry={removeEntry} entriesLength={entries.length} />
+                <BOMRow key={i} e={e} i={i} matMap={matMap} materials={materials.filter(m=>m.category!=='packaging')} batch={outputUnits} updateEntry={updateEntry} removeEntry={removeEntry} entriesLength={entries.length} />
               ))}
             </div>
             <div className="text-right text-xs font-mono text-muted-foreground">Raw materials / unit: <span className="text-primary font-bold ml-2">KES {rawCost.toFixed(2)}</span></div>
@@ -154,7 +189,7 @@ export default function ProductDetailPage() {
             </div>
             <div className="space-y-2">
               {entries.map((e, i) => e.kind === 'packaging' && (
-                <BOMRow key={i} e={e} i={i} matMap={matMap} materials={materials.filter(m=>m.category==='packaging')} batch={batchOutputQty} updateEntry={updateEntry} removeEntry={removeEntry} entriesLength={entries.length} />
+                <BOMRow key={i} e={e} i={i} matMap={matMap} materials={materials.filter(m=>m.category==='packaging')} batch={outputUnits} updateEntry={updateEntry} removeEntry={removeEntry} entriesLength={entries.length} />
               ))}
               {entries.every(e => e.kind !== 'packaging') && <p className="text-xs text-muted-foreground">No packaging materials yet (bottles, caps, labels, cartons…).</p>}
             </div>
@@ -171,12 +206,22 @@ export default function ProductDetailPage() {
             <div className="space-y-1.5"><Label>BOM notes (what changed?)</Label><Textarea rows={2} value={bomNotes} onChange={(e) => setBomNotes(e.target.value)} /></div>
           </div>
 
-          <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-5 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Projected unit cost</p>
-              <p className="text-3xl font-bold text-primary">KES {unitCost.toFixed(2)}</p>
+          <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-5 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1"><Calculator className="w-3.5 h-3.5" /> Live cost breakdown</p>
+                <p className="text-3xl font-bold text-primary">{money(unitCost)} / {product.unitDescription || 'unit'}</p>
+              </div>
+              <Button onClick={saveBOM} disabled={saving}>{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save as new revision</Button>
             </div>
-            <Button onClick={saveBOM} disabled={saving}>{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save as new revision</Button>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+              <CostTile label="Materials only / unit" value={rawCost} />
+              <CostTile label="Materials / litre" value={costPerLitreMaterials} muted={productVolume.litres <= 0} />
+              <CostTile label="Packaging / unit" value={packCost + Number(packaging || 0)} />
+              <CostTile label="Labor / unit" value={labor} />
+              <CostTile label="Overheads / unit" value={overhead} />
+            </div>
+            <p className="text-xs text-muted-foreground">Formula total: {Number(batchOutputQty || 0).toLocaleString()} {batchOutputUnit || ''} ≈ {Number(outputUnits || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} sellable units. Full cost includes raw materials, packaging materials, extra packaging, labor, and overheads.</p>
           </div>
         </TabsContent>
 
@@ -220,6 +265,15 @@ export default function ProductDetailPage() {
   );
 }
 
+function CostTile({ label, value, muted = false }) {
+  return (
+    <div className="rounded-lg border border-rekker-border bg-background/70 px-3 py-2 min-w-0">
+      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground leading-tight">{label}</p>
+      <p className={`font-mono font-bold mt-1 ${muted ? 'text-muted-foreground' : 'text-foreground'}`}>{muted ? '—' : money(value)}</p>
+    </div>
+  );
+}
+
 function BOMRow({ e, i, matMap, materials, batch, updateEntry, removeEntry, entriesLength }) {
   const mat = matMap[e.material];
   const perUnit = (Number(e.qtyPerBatch) > 0 && Number(batch) > 0) ? Number(e.qtyPerBatch) / Number(batch) : Number(e.qtyPerUnit || 0);
@@ -232,7 +286,7 @@ function BOMRow({ e, i, matMap, materials, batch, updateEntry, removeEntry, entr
           <SelectContent>{materials.map((m) => <SelectItem key={m._id} value={m._id}>{m.name} ({m.unit}) · {Number(m.currentUnitPrice).toFixed(2)}</SelectItem>)}</SelectContent>
         </Select>
       </div>
-      <div className="col-span-2"><Input type="number" min="0" step="any" value={e.qtyPerBatch} onChange={(ev) => updateEntry(i, { qtyPerBatch: ev.target.value })} placeholder="Qty/batch" /></div>
+      <div className="col-span-2"><Input type="number" min="0" step="any" value={e.qtyPerBatch} onChange={(ev) => updateEntry(i, { qtyPerBatch: ev.target.value })} placeholder="Qty/formula" /></div>
       <div className="col-span-2"><Input type="number" min="0" step="any" value={e.qtyPerUnit} onChange={(ev) => updateEntry(i, { qtyPerUnit: ev.target.value })} placeholder="Qty/unit" /></div>
       <div className="col-span-2 text-xs font-mono text-muted-foreground">≈ {perUnit.toFixed(4)} {mat?.unit || ''}</div>
       <div className="col-span-1 text-xs font-mono text-primary">KES {line.toFixed(2)}</div>

@@ -43,6 +43,9 @@ const schema = new mongoose.Schema(
     endedAt:       { type: Date, default: null },
 
     expectedUnits: { type: Number, default: 0, min: 0 },
+    targetOutputQty:  { type: Number, default: 0 },
+    targetOutputUnit: { type: String, default: '' },
+    targetOutputLitres: { type: Number, default: 0 },
     unitsProduced: { type: Number, default: 0, min: 0 },
     yieldLossUnits:{ type: Number, default: 0 },
     yieldLossPct:  { type: Number, default: 0 },
