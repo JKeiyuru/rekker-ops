@@ -39,6 +39,7 @@ import PurchaseRecsPage       from '@/pages/manufacturing/PurchaseRecsPage';
 import WhatIfPage             from '@/pages/manufacturing/WhatIfPage';
 import PricingPage            from '@/pages/manufacturing/PricingPage';
 import CostAuditPage          from '@/pages/manufacturing/CostAuditPage';
+import HubPage                from '@/pages/HubPage';
 
 const ADMIN        = ['super_admin','admin'];
 const PACKAGING    = ['super_admin','admin','team_lead','packaging_team_lead','viewer'];
@@ -56,6 +57,7 @@ function RoleRedirect() {
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   const r = user.role;
+  if (['super_admin','admin'].includes(r)) return <Navigate to="/hub" replace />;
   if (r === 'merchandiser')            return <Navigate to="/merch-dashboard" replace />;
   if (r === 'merchandising_team_lead') return <Navigate to="/attendance"      replace />;
   if (r === 'packaging_team_lead')     return <Navigate to="/lpos"            replace />;
@@ -78,6 +80,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/"   element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
+      <Route path="/hub" element={<P roles={ADMIN}><HubPage /></P>} />
+
 
       {/* Packaging */}
       <Route path="/dashboard" element={<P roles={PACKAGING_PM}><Dashboard /></P>} />

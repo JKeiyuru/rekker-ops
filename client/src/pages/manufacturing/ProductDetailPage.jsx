@@ -169,9 +169,25 @@ export default function ProductDetailPage() {
 
           {/* Raw materials */}
           <div className="rounded-xl border border-rekker-border p-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <Label className="flex items-center gap-1"><Beaker className="w-4 h-4" /> Raw materials</Label>
               <Button size="sm" variant="outline" onClick={() => addEntry('raw')}><Plus className="w-3.5 h-3.5" /> Add</Button>
+            </div>
+            <div className="rounded-lg bg-accent/30 border border-rekker-border px-3 py-2 text-xs text-muted-foreground">
+              For each raw material pick it from the dropdown then fill <span className="font-semibold text-foreground">ONE</span> of the two quantity fields:
+              <ul className="list-disc ml-4 mt-1 space-y-0.5">
+                <li><span className="font-semibold text-foreground">Qty / formula</span> — total amount you weigh into the full batch (e.g. 50 kg of caustic for a 200 L formula). <span className="text-primary">Recommended</span> — matches how the PM actually works.</li>
+                <li><span className="font-semibold text-foreground">Qty / unit</span> — exact amount per sellable unit. Only fill this if you cost something per bottle directly (e.g. fragrance dosed per 500ml). Leave Qty/formula at 0 in that case.</li>
+              </ul>
+              <p className="mt-1">The "≈" column shows the auto-computed per-unit quantity used for costing.</p>
+            </div>
+            <div className="hidden sm:grid grid-cols-12 gap-2 px-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
+              <div className="col-span-4">Material</div>
+              <div className="col-span-2">Qty / formula</div>
+              <div className="col-span-2">Qty / unit</div>
+              <div className="col-span-2">Per unit (calc)</div>
+              <div className="col-span-1 text-right">Cost/unit</div>
+              <div className="col-span-1" />
             </div>
             <div className="space-y-2">
               {entries.map((e, i) => e.kind !== 'packaging' && (
@@ -183,10 +199,11 @@ export default function ProductDetailPage() {
 
           {/* Packaging materials */}
           <div className="rounded-xl border border-rekker-border p-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <Label className="flex items-center gap-1"><Box className="w-4 h-4" /> Packaging materials</Label>
               <Button size="sm" variant="outline" onClick={() => addEntry('packaging')}><Plus className="w-3.5 h-3.5" /> Add</Button>
             </div>
+            <p className="text-xs text-muted-foreground">For packaging (bottles, caps, labels, cartons) you almost always fill <span className="font-semibold text-foreground">Qty / unit = 1</span> (one bottle per sellable unit, etc.). Use Qty / formula only for shared packaging consumed across the whole batch.</p>
             <div className="space-y-2">
               {entries.map((e, i) => e.kind === 'packaging' && (
                 <BOMRow key={i} e={e} i={i} matMap={matMap} materials={materials.filter(m=>m.category==='packaging')} batch={outputUnits} updateEntry={updateEntry} removeEntry={removeEntry} entriesLength={entries.length} />
