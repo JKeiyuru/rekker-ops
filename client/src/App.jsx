@@ -27,6 +27,7 @@ import FreshCustomerLPOsPage from '@/pages/fresh/FreshCustomerLPOsPage';
 import FreshReturnsPage      from '@/pages/fresh/FreshReturnsPage';
 import DeliveriesDashboard   from '@/pages/deliveries/DeliveriesDashboard';
 import DeliveryTripWorkflow  from '@/pages/deliveries/DeliveryTripWorkflow';
+import MyTripsPage            from '@/pages/deliveries/MyTripsPage';
 import ManufacturingDashboard from '@/pages/manufacturing/ManufacturingDashboard';
 import ProductsPage           from '@/pages/manufacturing/ProductsPage';
 import ProductDetailPage      from '@/pages/manufacturing/ProductDetailPage';
@@ -105,8 +106,9 @@ export default function App() {
       <Route path="/fresh/vehicles"      element={<P roles={ADMIN}><VehiclesPage /></P>} />
 
       {/* Deliveries (ordinary goods) */}
-      <Route path="/deliveries"      element={<P roles={DELIVERY_MGMT}><DeliveriesDashboard /></P>} />
-      <Route path="/deliveries/trip" element={<P roles={DELIVERY_FIELD}><DeliveryTripWorkflow /></P>} />
+      <Route path="/deliveries"          element={<P roles={DELIVERY_MGMT}><DeliveriesDashboard /></P>} />
+      <Route path="/deliveries/trip"     element={<P roles={DELIVERY_FIELD}><DeliveryTripWorkflow /></P>} />
+      <Route path="/deliveries/my-trips" element={<P roles={DELIVERY_FIELD}><MyTripsPage /></P>} />
 
       {/* Manufacturing */}
       <Route path="/manufacturing"             element={<P roles={MFG_ALL}><ManufacturingDashboard /></P>} />

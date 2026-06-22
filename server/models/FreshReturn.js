@@ -1,11 +1,13 @@
 // server/models/FreshReturn.js
-// Per-item returns linked to one or many FreshCustomerLPOs.
+// Two modes:
+//   - mode='items': itemized return; per-item qty applied to LPO.items.returnedQty
+//   - mode='value': flat-value return; amount per LPO added to LPO.valueReturnedTotal
 
 const mongoose = require('mongoose');
 
 const returnItemSchema = new mongoose.Schema({
   lpo:       { type: mongoose.Schema.Types.ObjectId, ref: 'FreshCustomerLPO', required: true },
-  itemId:    { type: mongoose.Schema.Types.ObjectId, required: true }, // _id of item subdoc
+  itemId:    { type: mongoose.Schema.Types.ObjectId, required: true },
   itemName:  { type: String, default: '' },
   qty:       { type: Number, required: true, min: 0 },
   unitPrice: { type: Number, required: true, min: 0 },
@@ -18,21 +20,29 @@ returnItemSchema.pre('save', function (next) {
   next();
 });
 
+const valueLineSchema = new mongoose.Schema({
+  lpo:    { type: mongoose.Schema.Types.ObjectId, ref: 'FreshCustomerLPO', required: true },
+  amount: { type: Number, required: true, min: 0 },
+  notes:  { type: String, default: '' },
+}, { _id: true });
+
 const freshReturnSchema = new mongoose.Schema(
   {
     returnNumber: { type: String, required: true, unique: true, trim: true, uppercase: true },
     date:         { type: Date, default: Date.now },
-    reason: {
-      type: String,
-      enum: ['damaged', 'wrong_item', 'wrong_quantity', 'expired', 'refused', 'short_dated', 'other'],
-      default: 'other',
-    },
+
+    mode: { type: String, enum: ['items', 'value'], default: 'items' },
+
+    // Reason can be a built-in code OR a free-text label (saved custom reason).
+    reason:      { type: String, default: 'other' },
+    reasonLabel: { type: String, default: '' }, // human-readable, always set
+
     notes: { type: String, default: '' },
 
-    // LPOs this return touches (denormalized for fast lookups)
     lpos: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FreshCustomerLPO' }],
 
-    items: { type: [returnItemSchema], default: [] },
+    items:      { type: [returnItemSchema], default: [] },
+    valueLines: { type: [valueLineSchema],  default: [] },
 
     totalValue: { type: Number, default: 0 },
     createdBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -42,14 +52,17 @@ const freshReturnSchema = new mongoose.Schema(
 
 freshReturnSchema.pre('save', function (next) {
   let total = 0;
-  this.items.forEach((it) => {
-    it.lineTotal = Number(it.qty || 0) * Number(it.unitPrice || 0);
-    total += it.lineTotal;
-  });
+  if (this.mode === 'items') {
+    this.items.forEach((it) => {
+      it.lineTotal = Number(it.qty || 0) * Number(it.unitPrice || 0);
+      total += it.lineTotal;
+    });
+    this.lpos = Array.from(new Set(this.items.map((it) => String(it.lpo))));
+  } else {
+    this.valueLines.forEach((v) => { total += Number(v.amount || 0); });
+    this.lpos = Array.from(new Set(this.valueLines.map((v) => String(v.lpo))));
+  }
   this.totalValue = total;
-  // Build lpos list from items
-  const lpoSet = new Set(this.items.map((it) => String(it.lpo)));
-  this.lpos = Array.from(lpoSet);
   next();
 });
 

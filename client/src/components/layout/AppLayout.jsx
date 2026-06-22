@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import MobileNav from './MobileNav';
 import NotificationsBell from '@/components/NotificationsBell';
 import ThemeToggle from '@/components/ThemeToggle';
+import OnlineStatusBadge from '@/components/OnlineStatusBadge';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
@@ -35,6 +36,7 @@ export default function AppLayout({ children }) {
       <main className="flex-1 md:ml-60 min-h-screen overflow-auto pb-20 md:pb-0">
         <div className="max-w-screen-2xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
           <div className="flex justify-end items-center gap-2 mb-4">
+            <OnlineStatusBadge />
             <ThemeToggle />
             <NotificationsBell />
           </div>

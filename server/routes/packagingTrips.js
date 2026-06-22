@@ -80,6 +80,95 @@ router.get('/my-active', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// GET /api/packaging-trips/my-trips — current user's past sessions
+router.get('/my-trips', protect, async (req, res) => {
+  try {
+    const days = Math.min(Number(req.query.days || 30), 180);
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const sessions = await Session.find({
+      $or: [{ driver: req.user._id }, { helpers: req.user._id }],
+      date: { $gte: cutoff },
+    }).populate(POPULATE).sort({ date: -1, createdAt: -1 }).limit(100);
+    res.json(await withStages(sessions));
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// GET /api/packaging-trips/analytics — KPIs for dashboard (last N days)
+router.get('/analytics', protect, async (req, res) => {
+  try {
+    const days = Math.min(Number(req.query.days || 7), 90);
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const sessions = await Session.find({ date: { $gte: cutoff } })
+      .populate([{ path: 'driver', select: 'fullName' }, { path: 'vehicle', select: 'regNumber' }])
+      .sort({ date: -1 });
+
+    const completed = sessions.filter(s => s.status === 'completed');
+    const totalDuration = completed.reduce((a, s) => a + (s.totalDurationMinutes || 0), 0);
+    const totalDelays = sessions.reduce((a, s) => a + (s.totalDelayMinutes || 0), 0);
+    const totalStages = sessions.reduce((a, s) => a + (s.totalStages || 0), 0);
+
+    // By driver
+    const byDriver = {};
+    const byVehicle = {};
+    sessions.forEach(s => {
+      const dk = s.driver?._id?.toString();
+      if (dk) {
+        byDriver[dk] = byDriver[dk] || { name: s.driver.fullName, trips: 0, stages: 0, durationMin: 0, delayMin: 0 };
+        byDriver[dk].trips += 1;
+        byDriver[dk].stages += s.totalStages || 0;
+        byDriver[dk].durationMin += s.totalDurationMinutes || 0;
+        byDriver[dk].delayMin += s.totalDelayMinutes || 0;
+      }
+      const vk = s.vehicle?._id?.toString();
+      if (vk) {
+        byVehicle[vk] = byVehicle[vk] || { reg: s.vehicle.regNumber, trips: 0, stages: 0, durationMin: 0, delayMin: 0 };
+        byVehicle[vk].trips += 1;
+        byVehicle[vk].stages += s.totalStages || 0;
+        byVehicle[vk].durationMin += s.totalDurationMinutes || 0;
+        byVehicle[vk].delayMin += s.totalDelayMinutes || 0;
+      }
+    });
+
+    res.json({
+      days,
+      totalTrips: sessions.length,
+      completedTrips: completed.length,
+      avgDurationMin: completed.length ? Math.round(totalDuration / completed.length) : 0,
+      totalStages,
+      totalDelayMin: totalDelays,
+      byDriver: Object.values(byDriver).sort((a, b) => b.trips - a.trips),
+      byVehicle: Object.values(byVehicle).sort((a, b) => b.trips - a.trips),
+    });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// GET /api/packaging-trips/team — merchandiser visibility (role-based + recent helpers)
+router.get('/team', protect, async (req, res) => {
+  try {
+    const User = require('../models/User');
+    const merchandisers = await User.find({ role: 'merchandiser', isActive: true })
+      .select('fullName username').sort({ fullName: 1 });
+
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const recent = await Session.find({ date: { $gte: cutoff } })
+      .populate('helpers', 'fullName role')
+      .select('helpers date');
+    const helperMap = new Map();
+    recent.forEach(s => {
+      (s.helpers || []).forEach(h => {
+        const k = h._id.toString();
+        if (!helperMap.has(k) || helperMap.get(k).lastSeen < s.date) {
+          helperMap.set(k, { _id: h._id, fullName: h.fullName, role: h.role, lastSeen: s.date });
+        }
+      });
+    });
+    res.json({
+      merchandisers,
+      tripHelpers: Array.from(helperMap.values()).sort((a, b) => (b.lastSeen || '').localeCompare(a.lastSeen || '')),
+    });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 router.get('/:id', protect, async (req, res) => {
   try {
     const session = await Session.findById(req.params.id).populate(POPULATE);

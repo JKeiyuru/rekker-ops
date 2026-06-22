@@ -33,8 +33,9 @@ const NAV_SECTIONS = [
       { to: '/reports',   icon: BarChart3,       label: 'Reports',          roles: ADMIN_ONLY },
   ]},
   { key: 'deliveries', label: 'Deliveries', items: [
-      { to: '/deliveries',      icon: LayoutDashboard, label: 'Dashboard',  roles: DELIVERY_MGMT },
-      { to: '/deliveries/trip', icon: Truck,           label: 'Field Ops',  roles: DELIVERY_FIELD },
+      { to: '/deliveries',          icon: LayoutDashboard, label: 'Dashboard',  roles: DELIVERY_MGMT },
+      { to: '/deliveries/trip',     icon: Truck,           label: 'Field Ops',  roles: DELIVERY_FIELD },
+      { to: '/deliveries/my-trips', icon: History,         label: 'My Trips',   roles: DELIVERY_FIELD },
   ]},
   { key: 'merchandising', label: 'Merchandising', items: [
       { to: '/merch-dashboard', icon: LayoutDashboard, label: 'My Dashboard',  roles: ['merchandiser']  },

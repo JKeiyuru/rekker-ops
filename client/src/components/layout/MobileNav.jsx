@@ -27,6 +27,12 @@ function getPrimaryNav(role) {
       { to: '/fresh/lpos',  icon: FileSpreadsheet, label: 'LPOs'     },
     ];
   }
+  if (['goods_driver','goods_turnboy'].includes(role)) {
+    return [
+      { to: '/deliveries/trip',     icon: Truck,         label: 'Field Ops' },
+      { to: '/deliveries/my-trips', icon: ClipboardList, label: 'My Trips'  },
+    ];
+  }
   if (role === 'fresh_team_lead') {
     return [
       { to: '/fresh',         icon: LayoutDashboard, label: 'Dashboard' },
@@ -80,8 +86,9 @@ const MODULE_NAVS = {
     { to: '/reports',   icon: BarChart2,       label: 'Reports' },
   ],
   deliveries: [
-    { to: '/deliveries',      icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/deliveries/trip', icon: Truck,           label: 'Field Ops' },
+    { to: '/deliveries',          icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/deliveries/trip',     icon: Truck,           label: 'Field Ops' },
+    { to: '/deliveries/my-trips', icon: ClipboardList,   label: 'My Trips' },
   ],
   merchandising: [
     { to: '/checkin',     icon: MapPin,        label: 'Check-In' },

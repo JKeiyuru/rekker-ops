@@ -14,7 +14,29 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import api from '@/lib/api';
+import { enqueue } from '@/lib/offlineQueue';
 import toast from 'react-hot-toast';
+
+// Wrap a write call so it falls back to the offline queue on network failure.
+async function callOrQueue({ method, url, body }, kind) {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    enqueue(kind, { method, url, body });
+    toast(`Saved offline — will sync when online`, { icon: '📶' });
+    return { offline: true };
+  }
+  try {
+    const res = await (method === 'PATCH' ? api.patch(url, body) : api.post(url, body));
+    return res.data;
+  } catch (err) {
+    // No HTTP status => network error => queue
+    if (!err?.response) {
+      enqueue(kind, { method, url, body });
+      toast(`Saved offline — will sync when online`, { icon: '📶' });
+      return { offline: true };
+    }
+    throw err;
+  }
+}
 
 const FIXED_LOCATIONS = ['Go-Down', 'Warehouse', 'DC'];
 const DELAY_CATEGORIES = [
@@ -222,22 +244,27 @@ export default function DeliveryTripWorkflow() {
     setAct(true); const { lat, lng } = await capture();
     try {
       const dest = activeStage?.toLocation && activeStage.toLocation !== 'en_route' ? activeStage.toLocation : nextDest;
-      const res = await api.post(`/packaging-trips/${session._id}/arrive`, { location: dest, lat, lng });
-      setSession(res.data); setStages(res.data.stages || []); toast.success(`Arrived at ${dest}`);
+      const data = await callOrQueue({ method: 'POST', url: `/packaging-trips/${session._id}/arrive`, body: { location: dest, lat, lng } }, 'TRIP_ARRIVE');
+      if (data?.offline) { toast.success(`Arrival at ${dest} queued`); await fetchSession(); }
+      else { setSession(data); setStages(data.stages || []); toast.success(`Arrived at ${dest}`); }
     } catch (e) { toast.error(e.response?.data?.message || 'Failed'); } finally { setAct(false); }
   };
   const depart = async () => {
     if (!nextDest) return toast.error('Pick a destination');
     setAct(true); const { lat, lng } = await capture();
     try {
-      const res = await api.post(`/packaging-trips/${session._id}/depart`, { nextLocation: nextDest, lat, lng });
-      setSession(res.data); setStages(res.data.stages || []); setNextDest(''); toast.success(`En route to ${nextDest}`);
+      const data = await callOrQueue({ method: 'POST', url: `/packaging-trips/${session._id}/depart`, body: { nextLocation: nextDest, lat, lng } }, 'TRIP_DEPART');
+      if (data?.offline) { toast.success(`Departure to ${nextDest} queued`); setNextDest(''); await fetchSession(); }
+      else { setSession(data); setStages(data.stages || []); setNextDest(''); toast.success(`En route to ${nextDest}`); }
     } catch (e) { toast.error(e.response?.data?.message || 'Failed'); } finally { setAct(false); }
   };
   const endDay = async () => {
     setAct(true); const { lat, lng } = await capture();
-    try { await api.post(`/packaging-trips/${session._id}/end`, { lat, lng }); setSession(null); setStages([]); setEndConfirm(false); toast.success('Day ended'); }
-    catch (e) { toast.error(e.response?.data?.message || 'Failed'); } finally { setAct(false); }
+    try {
+      const data = await callOrQueue({ method: 'POST', url: `/packaging-trips/${session._id}/end`, body: { lat, lng } }, 'TRIP_END');
+      if (data?.offline) { toast.success('End-of-day queued'); setEndConfirm(false); }
+      else { setSession(null); setStages([]); setEndConfirm(false); toast.success('Day ended'); }
+    } catch (e) { toast.error(e.response?.data?.message || 'Failed'); } finally { setAct(false); }
   };
 
   if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
