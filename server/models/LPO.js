@@ -7,7 +7,6 @@ const lpoSchema = new mongoose.Schema(
     lpoNumber: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       uppercase: true,
     },
@@ -75,6 +74,9 @@ const lpoSchema = new mongoose.Schema(
 );
 
 lpoSchema.index({ date: -1 });
-lpoSchema.index({ lpoNumber: 1 }, { unique: true });
+// Same LPO number can repeat across different branches, but must be unique within a branch.
+// Null branch is treated as its own "bucket" (so unassigned LPOs still can't duplicate a number).
+lpoSchema.index({ branch: 1, lpoNumber: 1 }, { unique: true });
+lpoSchema.index({ lpoNumber: 1 });
 
 module.exports = mongoose.model('LPO', lpoSchema);

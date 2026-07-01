@@ -130,10 +130,21 @@ mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
     console.log('✅ MongoDB connected');
 
+    // ── Index migration: old unique lpoNumber_1 → compound (branch, lpoNumber) ──
+    try {
+      const LPO = require('./models/LPO');
+      const indexes = await LPO.collection.indexes();
+      const legacy = indexes.find((i) => i.name === 'lpoNumber_1' && i.unique);
+      if (legacy) {
+        await LPO.collection.dropIndex('lpoNumber_1');
+        console.log('🔧 Dropped legacy unique index lpoNumber_1 (now unique per branch)');
+      }
+      await LPO.syncIndexes();
+    } catch (e) {
+      console.warn('⚠️  LPO index migration:', e.message);
+    }
+
     // Run the incomplete-session sweep on every startup.
-    // On Render this happens whenever the dyno cold-starts (including after
-    // being woken by the nightly Cron Job ping), so stale sessions are always
-    // caught without needing node-cron running inside the process.
     const marked = await markIncompleteSessions();
     if (marked > 0) {
       console.log(`⏰  Startup sweep: marked ${marked} session(s) as INCOMPLETE`);

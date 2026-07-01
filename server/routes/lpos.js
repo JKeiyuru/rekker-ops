@@ -65,8 +65,10 @@ router.post('/', protect, authorize('super_admin', 'admin', 'team_lead', 'packag
   try {
     const { lpoNumber, date, deliveryDate, responsiblePerson, issuedNow, branchId, branchNameRaw, amount } = req.body;
 
-    const existing = await LPO.findOne({ lpoNumber: lpoNumber.toUpperCase() });
-    if (existing) return res.status(400).json({ message: 'LPO number already exists' });
+    const numberUpper = String(lpoNumber || '').toUpperCase();
+    const branchFilter = branchId || null;
+    const existing = await LPO.findOne({ lpoNumber: numberUpper, branch: branchFilter });
+    if (existing) return res.status(400).json({ message: 'LPO number already exists for this branch' });
 
     const lpoData = {
       lpoNumber,
@@ -99,13 +101,25 @@ router.post('/batch', protect, authorize('super_admin', 'admin', 'team_lead', 'p
 
     if (!lpos || !lpos.length) return res.status(400).json({ message: 'No LPOs provided' });
 
-    const numbers = lpos.map((l) => l.lpoNumber.toUpperCase());
-    const dupes = numbers.filter((n, i) => numbers.indexOf(n) !== i);
-    if (dupes.length) return res.status(400).json({ message: `Duplicate LPO numbers: ${dupes.join(', ')}` });
+    // Build (branch, number) keys and check for duplicates within the payload + DB
+    const keyOf = (l) => `${l.branchId || 'null'}::${String(l.lpoNumber).toUpperCase()}`;
+    const keys = lpos.map(keyOf);
+    const dupeKey = keys.find((k, i) => keys.indexOf(k) !== i);
+    if (dupeKey) {
+      return res.status(400).json({ message: `Duplicate LPO number within same branch: ${dupeKey.split('::')[1]}` });
+    }
 
-    const existingInDB = await LPO.find({ lpoNumber: { $in: numbers } });
-    if (existingInDB.length) {
-      return res.status(400).json({ message: `Already exists: ${existingInDB.map((l) => l.lpoNumber).join(', ')}` });
+    // Check DB for conflicts per (branch, number)
+    const conflicts = [];
+    await Promise.all(lpos.map(async (l) => {
+      const found = await LPO.findOne({
+        lpoNumber: String(l.lpoNumber).toUpperCase(),
+        branch: l.branchId || null,
+      });
+      if (found) conflicts.push(l.lpoNumber);
+    }));
+    if (conflicts.length) {
+      return res.status(400).json({ message: `Already exists for this branch: ${conflicts.join(', ')}` });
     }
 
     const batchId = uuidv4();

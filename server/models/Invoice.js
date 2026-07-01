@@ -18,10 +18,21 @@ const invoiceSchema = new mongoose.Schema(
     },
     lpoNumber: { type: String, trim: true, uppercase: true },
 
-    // Financial fields
+    // Financial fields — amountExVat is the subtotal (taxable + exempt portions)
     amountExVat:     { type: Number, required: true },
     amountInclVat:   { type: Number, required: true },
     vatRate:         { type: Number, default: 16 },
+
+    // Tax exemption support
+    // taxMode:
+    //   'taxable' → all of amountExVat is subject to VAT (exemptAmount = 0)
+    //   'exempt'  → none of amountExVat is subject to VAT (exemptAmount = amountExVat)
+    //   'mixed'   → part of amountExVat is exempt (exemptAmount is the exempt portion)
+    taxMode:         { type: String, enum: ['taxable', 'exempt', 'mixed'], default: 'taxable' },
+    exemptAmount:    { type: Number, default: 0 },
+
+    // Batch grouping (invoices created together for one branch/day/delivery)
+    batchId:         { type: String, default: null, index: true },
 
     // Disparity
     disparityAmount: { type: Number, default: null },

@@ -322,7 +322,23 @@ function InvoiceRow({ invoice, onUpdated, onDeleted, isAdmin, canEdit, i }) {
 
         {/* Invoice incl-VAT */}
         <td className="px-3 py-3 whitespace-nowrap">
-          <span className="font-mono text-xs text-foreground">{fmt(invoice.amountInclVat)}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs text-foreground">{fmt(invoice.amountInclVat)}</span>
+            {invoice.taxMode === 'exempt' && (
+              <Badge variant="outline" className="text-[9px] py-0 h-4 border-blue-500/40 text-blue-400">EXEMPT</Badge>
+            )}
+            {invoice.taxMode === 'mixed' && invoice.exemptAmount > 0 && (
+              <TooltipProvider><Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-[9px] py-0 h-4 border-amber-500/40 text-amber-400 cursor-help">MIXED</Badge>
+                </TooltipTrigger>
+                <TooltipContent className="text-xs">
+                  Exempt portion: KES {fmtShort(invoice.exemptAmount)} <br />
+                  Taxable: KES {fmtShort((invoice.amountExVat || 0) - (invoice.exemptAmount || 0))}
+                </TooltipContent>
+              </Tooltip></TooltipProvider>
+            )}
+          </div>
         </td>
 
         {/* Disparity */}
