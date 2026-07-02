@@ -323,8 +323,8 @@ export default function LPOTable({ lpos, onUpdated, onDeleted }) {
                           />
                         )}
 
-                        {/* Edit button — admin only */}
-                        {canAdmin && (
+                        {/* Edit — packaging team lead+ */}
+                        {canEdit && (
                           <ActionBtn
                             icon={Pencil} label="" title="Edit LPO" variant="ghost"
                             onClick={() => setEditLpo(lpo)}

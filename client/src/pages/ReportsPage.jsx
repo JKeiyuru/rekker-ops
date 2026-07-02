@@ -1,244 +1,347 @@
 // client/src/pages/ReportsPage.jsx
+// Packaging reports hub. Every tab supports PDF + Excel export.
 
-import { useEffect, useState } from 'react';
-import { Download, Loader2, BarChart3, Clock, Users, TrendingUp } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Download, FileText, Receipt, RotateCcw, Layers, Loader2, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
-  LineChart, Line
-} from 'recharts';
+import { format } from 'date-fns';
 import api from '@/lib/api';
+import UniversalFilterBar from '@/components/UniversalFilterBar';
+import { exportToPDF, exportToExcel, computeTotalsRow } from '@/lib/reportExport';
 
-const ORANGE = '#FF6B2C';
-const CHART_STYLE = {
-  background: 'transparent',
-  fontFamily: 'JetBrains Mono, monospace',
-  fontSize: 11,
+const ADJ_LABELS = {
+  returned_goods: 'Returned Goods',
+  not_delivered:  'Not Delivered',
+  control_list:   'Control List',
+  other:          'Other',
 };
 
-function SectionTitle({ icon: Icon, title }) {
+function fmt(n) {
+  if (n == null || n === '') return '';
+  const num = Number(n);
+  if (!Number.isFinite(num)) return String(n);
+  return num.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ── Reusable Report Table ────────────────────────────────────────────────────
+function ReportTable({ cols, rows, totalsReducers, title, filename }) {
+  const totalsRow = totalsReducers ? computeTotalsRow(rows, totalsReducers) : null;
   return (
-    <div className="flex items-center gap-2 mb-4">
-      <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
-        <Icon className="w-4 h-4 text-primary" />
+    <div className="rounded-xl border border-rekker-border overflow-hidden bg-rekker-surface">
+      <div className="flex items-center justify-between p-3 border-b border-rekker-border">
+        <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+          {rows.length} records{totalsRow ? ' + totals' : ''}
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() =>
+            exportToPDF({ rows, cols, meta: { title, filename, totalsRow } })}>
+            <Download className="w-3.5 h-3.5" /> PDF
+          </Button>
+          <Button size="sm" onClick={() =>
+            exportToExcel({ rows, cols, meta: { title, filename, totalsRow } })}>
+            <Download className="w-3.5 h-3.5" /> Excel
+          </Button>
+        </div>
       </div>
-      <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider font-mono">{title}</h2>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-rekker-border bg-rekker-surface/80">
+              {cols.map((c) => (
+                <th key={c} className="text-left px-3 py-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-b border-rekker-border/50 hover:bg-accent/20">
+                {r.map((v, j) => (
+                  <td key={j} className="px-3 py-2 text-xs text-foreground whitespace-nowrap">{v ?? ''}</td>
+                ))}
+              </tr>
+            ))}
+            {totalsRow && (
+              <tr className="bg-rekker-surface/60 font-mono font-semibold">
+                {totalsRow.map((v, j) => (
+                  <td key={j} className="px-3 py-2 text-xs text-primary">
+                    {typeof v === 'number' ? fmt(v) : v}
+                  </td>
+                ))}
+              </tr>
+            )}
+            {rows.length === 0 && (
+              <tr><td colSpan={cols.length} className="text-center py-10 text-muted-foreground text-sm">No records match filters.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
-function LoadingCard() {
-  return <div className="rounded-xl border border-rekker-border bg-rekker-surface h-64 animate-pulse" />;
+// ── LPO Report ───────────────────────────────────────────────────────────────
+function LPOReport({ filters }) {
+  const [loading, setLoading] = useState(true);
+  const [groups, setGroups] = useState([]);
+  const [groupBy, setGroupBy] = useState('none'); // none | branch | day | branchDay
+
+  useEffect(() => {
+    setLoading(true);
+    api.get('/lpos', { params: filters }).then((r) => setGroups(r.data || []))
+      .finally(() => setLoading(false));
+  }, [JSON.stringify(filters)]);
+
+  const flat = useMemo(() => {
+    const out = [];
+    groups.forEach((g) => g.lpos.forEach((l) => {
+      const branch = l.branch?.name || l.branchNameRaw || '—';
+      if (filters.branches?.length && (!l.branch || !filters.branches.includes(l.branch._id))) return;
+      out.push({ date: g.date, branch, lpo: l });
+    }));
+    return out;
+  }, [groups, filters.branches]);
+
+  const rows = useMemo(() => {
+    if (groupBy === 'none') {
+      return flat.map((r) => [r.date, r.lpo.lpoNumber, r.branch, r.lpo.responsiblePerson?.name || '—',
+        r.lpo.amount ?? '', r.lpo.status, r.lpo.errors?.filter((e) => e !== 'none').join(', ') || '—']);
+    }
+    const keyFn = groupBy === 'branch' ? (r) => r.branch
+      : groupBy === 'day' ? (r) => r.date
+      : (r) => `${r.date} · ${r.branch}`;
+    const map = new Map();
+    flat.forEach((r) => {
+      const k = keyFn(r);
+      if (!map.has(k)) map.set(k, { key: k, count: 0, amount: 0 });
+      const g = map.get(k);
+      g.count += 1;
+      g.amount += Number(r.lpo.amount || 0);
+    });
+    return Array.from(map.values()).map((g) => [g.key, g.count, g.amount]);
+  }, [flat, groupBy]);
+
+  const cols = groupBy === 'none'
+    ? ['Date', 'LPO #', 'Branch', 'Prepared By', 'Amount (KES)', 'Status', 'Errors']
+    : [groupBy === 'branch' ? 'Branch' : groupBy === 'day' ? 'Day' : 'Day · Branch', 'LPOs', 'Total Amount'];
+  const totals = groupBy === 'none'
+    ? ['TOTAL', '', '', '', 'sum', '', '']
+    : ['TOTAL', 'sum', 'sum'];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Group by</span>
+        {['none', 'branch', 'day', 'branchDay'].map((k) => (
+          <button key={k} onClick={() => setGroupBy(k)}
+            className={`text-xs px-2 py-1 rounded-md border ${groupBy === k ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>
+            {k === 'none' ? 'Detail' : k === 'branchDay' ? 'Branch × Day' : k[0].toUpperCase() + k.slice(1)}
+          </button>
+        ))}
+      </div>
+      {loading ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+        : <ReportTable cols={cols} rows={rows} totalsReducers={totals} title="LPO Report" filename="rekker-lpo-report" />}
+    </div>
+  );
 }
 
-export default function ReportsPage() {
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [errorRate, setErrorRate] = useState([]);
-  const [dailyPerf, setDailyPerf] = useState([]);
-  const [timeAnalysis, setTimeAnalysis] = useState(null);
+// ── Invoice Report ───────────────────────────────────────────────────────────
+function InvoiceReport({ filters }) {
   const [loading, setLoading] = useState(true);
+  const [groups, setGroups] = useState([]);
+  const [groupBy, setGroupBy] = useState('none');
 
-  const fetchReports = async () => {
+  useEffect(() => {
     setLoading(true);
-    const params = {};
-    if (dateRange.start) params.startDate = dateRange.start;
-    if (dateRange.end) params.endDate = dateRange.end;
-    try {
-      const [errRes, dailyRes, timeRes] = await Promise.all([
-        api.get('/reports/error-rate', { params }),
-        api.get('/reports/daily-performance', { params }),
-        api.get('/reports/time-analysis', { params }),
-      ]);
-      setErrorRate(errRes.data);
-      setDailyPerf(dailyRes.data.slice(0, 14).reverse());
-      setTimeAnalysis(timeRes.data);
-    } finally {
-      setLoading(false);
+    const params = { ...filters };
+    if (filters.branches?.length) params.branch = filters.branches.join(',');
+    api.get('/invoices', { params }).then((r) => setGroups(r.data || []))
+      .finally(() => setLoading(false));
+  }, [JSON.stringify(filters)]);
+
+  const flat = useMemo(() => {
+    const out = [];
+    groups.forEach((g) => g.invoices.forEach((inv) => {
+      out.push({ date: g.date, branch: inv.branch?.name || inv.branchNameRaw || '—', inv });
+    }));
+    return out;
+  }, [groups]);
+
+  const rows = useMemo(() => {
+    if (groupBy === 'none') {
+      return flat.map((r) => {
+        const adj = (r.inv.adjustments || []).reduce((s, a) => s + Number(a.amount || 0), 0);
+        return [
+          r.date, r.inv.invoiceNumber, r.inv.lpoNumber || '—', r.branch,
+          Number(r.inv.amountExVat || 0), Number(r.inv.amountInclVat || 0),
+          r.inv.disparityAmount ?? '', r.inv.disparityReason || '—',
+          adj || '', Number(r.inv.adjustedAmount ?? r.inv.amountInclVat), r.inv.status,
+        ];
+      });
     }
-  };
+    const keyFn = groupBy === 'branch' ? (r) => r.branch
+      : groupBy === 'day' ? (r) => r.date
+      : (r) => `${r.date} · ${r.branch}`;
+    const map = new Map();
+    flat.forEach((r) => {
+      const k = keyFn(r);
+      if (!map.has(k)) map.set(k, { key: k, count: 0, exVat: 0, inclVat: 0, adj: 0 });
+      const g = map.get(k);
+      g.count += 1;
+      g.exVat += Number(r.inv.amountExVat || 0);
+      g.inclVat += Number(r.inv.amountInclVat || 0);
+      g.adj += (r.inv.adjustments || []).reduce((s, a) => s + Number(a.amount || 0), 0);
+    });
+    return Array.from(map.values()).map((g) => [g.key, g.count, g.exVat, g.inclVat, g.adj, g.inclVat - g.adj]);
+  }, [flat, groupBy]);
 
-  useEffect(() => { fetchReports(); }, []);
+  const cols = groupBy === 'none'
+    ? ['Date', 'Invoice #', 'LPO #', 'Branch', 'Ex-VAT', 'Incl. VAT', 'Disparity', 'Reason', 'Adjustments', 'Adjusted', 'Status']
+    : [groupBy === 'branch' ? 'Branch' : groupBy === 'day' ? 'Day' : 'Day · Branch', 'Invoices', 'Ex-VAT', 'Incl. VAT', 'Adjustments', 'Adjusted'];
+  const totals = groupBy === 'none'
+    ? ['TOTAL', '', '', '', 'sum', 'sum', 'sum', '', 'sum', 'sum', '']
+    : ['TOTAL', 'sum', 'sum', 'sum', 'sum', 'sum'];
 
-  const handleExportCSV = () => {
-    if (!dailyPerf.length) return;
-    const headers = ['Date', 'Total LPOs', 'Issued', 'Completed', 'Checked', 'With Errors'];
-    const rows = dailyPerf.map((r) => [r._id, r.totalLPOs, r.issued, r.completed, r.checked, r.withErrors]);
-    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `rekker-ops-report-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Group by</span>
+        {['none', 'branch', 'day', 'branchDay'].map((k) => (
+          <button key={k} onClick={() => setGroupBy(k)}
+            className={`text-xs px-2 py-1 rounded-md border ${groupBy === k ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>
+            {k === 'none' ? 'Detail' : k === 'branchDay' ? 'Branch × Day' : k[0].toUpperCase() + k.slice(1)}
+          </button>
+        ))}
+      </div>
+      {loading ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+        : <ReportTable cols={cols} rows={rows} totalsReducers={totals} title="Invoice Report" filename="rekker-invoice-report" />}
+    </div>
+  );
+}
+
+// ── Goods Return Report ──────────────────────────────────────────────────────
+function GoodsReturnReport({ filters }) {
+  const [loading, setLoading] = useState(true);
+  const [groups, setGroups] = useState([]);
+
+  useEffect(() => {
+    setLoading(true);
+    const params = { ...filters };
+    if (filters.branches?.length) params.branch = filters.branches.join(',');
+    api.get('/invoices', { params }).then((r) => setGroups(r.data || []))
+      .finally(() => setLoading(false));
+  }, [JSON.stringify(filters)]);
+
+  const rows = useMemo(() => {
+    const out = [];
+    groups.forEach((g) => g.invoices.forEach((inv) => {
+      (inv.adjustments || []).forEach((a) => {
+        out.push([
+          g.date, inv.invoiceNumber,
+          inv.branch?.name || inv.branchNameRaw || '—',
+          Number(a.amount), ADJ_LABELS[a.type] || a.type,
+          a.reason || '—',
+          Number(inv.adjustedAmount ?? inv.amountInclVat),
+        ]);
+      });
+    }));
+    return out;
+  }, [groups]);
+
+  const cols = ['Date', 'Invoice #', 'Branch', 'Adjustment Amount', 'Type', 'Reason', 'Adjusted Invoice'];
+  const totals = ['TOTAL', '', '', 'sum', '', '', 'sum'];
+
+  return loading ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+    : <ReportTable cols={cols} rows={rows} totalsReducers={totals} title="Goods Return Report" filename="rekker-returns-report" />;
+}
+
+// ── Disparity Product Report ─────────────────────────────────────────────────
+function DisparityProductReport({ filters }) {
+  const [loading, setLoading] = useState(true);
+  const [groups, setGroups] = useState([]);
+
+  useEffect(() => {
+    setLoading(true);
+    const params = { ...filters };
+    if (filters.branches?.length) params.branch = filters.branches.join(',');
+    api.get('/invoices', { params }).then((r) => setGroups(r.data || []))
+      .finally(() => setLoading(false));
+  }, [JSON.stringify(filters)]);
+
+  const rows = useMemo(() => {
+    const out = [];
+    groups.forEach((g) => g.invoices.forEach((inv) => {
+      const lpoItems = inv.lpo?.items || [];
+      const invItems = inv.items || [];
+      if (!lpoItems.length && !invItems.length) return;
+      const keyOf = (it) => (it.sku || it.name || '').toLowerCase().trim();
+      const byKey = new Map();
+      lpoItems.forEach((it) => byKey.set(keyOf(it), { name: it.name, lpo: it, inv: null }));
+      invItems.forEach((it) => {
+        const k = keyOf(it);
+        if (byKey.has(k)) byKey.get(k).inv = it;
+        else byKey.set(k, { name: it.name, lpo: null, inv: it });
+      });
+      byKey.forEach(({ name, lpo, inv: iv }) => {
+        const lpoQty = Number(lpo?.quantity || 0);
+        const invQty = Number(iv?.quantity || 0);
+        const price  = Number(iv?.unitPrice ?? lpo?.unitPrice ?? 0);
+        const dQty   = invQty - lpoQty;
+        const dVal   = dQty * price;
+        if (Math.abs(dQty) > 0.001 || Math.abs(dVal) > 0.01) {
+          out.push([g.date, inv.invoiceNumber, inv.lpoNumber || '—', name, lpoQty, invQty, dQty, price, dVal]);
+        }
+      });
+    }));
+    return out;
+  }, [groups]);
+
+  const cols = ['Date', 'Invoice #', 'LPO #', 'Product', 'LPO Qty', 'Inv Qty', 'Δ Qty', 'Unit Price', 'Δ Value'];
+  const totals = ['TOTAL', '', '', '', 'sum', 'sum', 'sum', '', 'sum'];
+
+  return (
+    <div className="space-y-3">
+      {rows.length === 0 && !loading && (
+        <p className="text-xs text-muted-foreground p-3 rounded-md border border-dashed border-border">
+          No line-level disparities found. This report needs LPOs and invoices with product line items
+          (add them via Edit LPO / Edit Invoice → items).
+        </p>
+      )}
+      {loading ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+        : <ReportTable cols={cols} rows={rows} totalsReducers={totals} title="Disparity Product Report" filename="rekker-disparity-products" />}
+    </div>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+export default function ReportsPage() {
+  const [filters, setFilters] = useState({ startDate: '', endDate: '', branches: [] });
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="page-title">Reports</h1>
-          <p className="text-sm text-muted-foreground mt-1">Performance analytics and operational insights</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            LPOs, invoices, returns and product-level disparity — export to PDF or Excel.
+          </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleExportCSV}>
-          <Download className="w-3.5 h-3.5" />
-          Export CSV
-        </Button>
       </div>
 
-      {/* Date filters */}
-      <div className="flex flex-wrap items-center gap-3 p-4 rounded-xl border border-rekker-border bg-rekker-surface">
-        <span className="text-xs font-mono text-muted-foreground">Date Range:</span>
-        <Input type="date" className="h-8 w-36 text-sm" value={dateRange.start} onChange={(e) => setDateRange((d) => ({ ...d, start: e.target.value }))} />
-        <span className="text-xs text-muted-foreground font-mono">→</span>
-        <Input type="date" className="h-8 w-36 text-sm" value={dateRange.end} onChange={(e) => setDateRange((d) => ({ ...d, end: e.target.value }))} />
-        <Button size="sm" onClick={fetchReports} disabled={loading}>
-          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Apply'}
-        </Button>
-        {(dateRange.start || dateRange.end) && (
-          <Button variant="ghost" size="sm" onClick={() => { setDateRange({ start: '', end: '' }); }}>Clear</Button>
-        )}
-      </div>
+      <UniversalFilterBar value={filters} onChange={setFilters} />
 
-      <Tabs defaultValue="daily">
-        <TabsList className="mb-2">
-          <TabsTrigger value="daily">Daily Performance</TabsTrigger>
-          <TabsTrigger value="errors">Error Rates</TabsTrigger>
-          <TabsTrigger value="time">Time Analysis</TabsTrigger>
+      <Tabs defaultValue="lpo">
+        <TabsList>
+          <TabsTrigger value="lpo"><FileText className="w-3.5 h-3.5 mr-1.5" />LPOs</TabsTrigger>
+          <TabsTrigger value="invoice"><Receipt className="w-3.5 h-3.5 mr-1.5" />Invoices</TabsTrigger>
+          <TabsTrigger value="returns"><RotateCcw className="w-3.5 h-3.5 mr-1.5" />Returns / Adjustments</TabsTrigger>
+          <TabsTrigger value="disparity"><Layers className="w-3.5 h-3.5 mr-1.5" />Disparity Products</TabsTrigger>
         </TabsList>
-
-        {/* Daily Performance */}
-        <TabsContent value="daily">
-          <div className="rounded-xl border border-rekker-border bg-rekker-surface p-5">
-            <SectionTitle icon={BarChart3} title="Daily LPO Performance (Last 14 Days)" />
-            {loading ? <LoadingCard /> : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={dailyPerf} style={CHART_STYLE}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 17% 18%)" />
-                  <XAxis dataKey="_id" tick={{ fill: 'hsl(215 15% 50%)', fontSize: 10 }} tickFormatter={(v) => v.slice(5)} />
-                  <YAxis tick={{ fill: 'hsl(215 15% 50%)', fontSize: 10 }} />
-                  <Tooltip
-                    contentStyle={{ background: 'hsl(220 17% 10%)', border: '1px solid hsl(220 17% 18%)', borderRadius: 8, fontFamily: 'Sora' }}
-                    labelStyle={{ color: 'hsl(210 20% 92%)', fontSize: 12 }}
-                  />
-                  <Bar dataKey="totalLPOs" name="Total" fill={ORANGE} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="checked" name="Checked" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="withErrors" name="Errors" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-
-            {/* Table */}
-            {!loading && dailyPerf.length > 0 && (
-              <div className="mt-5 overflow-x-auto">
-                <table className="w-full text-xs font-mono">
-                  <thead>
-                    <tr className="border-b border-border">
-                      {['Date', 'Total', 'Issued', 'Completed', 'Checked', 'Errors'].map((h) => (
-                        <th key={h} className="text-left py-2 px-3 text-muted-foreground uppercase tracking-wider">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...dailyPerf].reverse().map((row) => (
-                      <tr key={row._id} className="border-b border-border/50 hover:bg-accent/20 transition-colors">
-                        <td className="py-2 px-3 text-foreground">{row._id}</td>
-                        <td className="py-2 px-3 text-foreground font-semibold">{row.totalLPOs}</td>
-                        <td className="py-2 px-3 text-amber-400">{row.issued}</td>
-                        <td className="py-2 px-3 text-blue-400">{row.completed}</td>
-                        <td className="py-2 px-3 text-emerald-400">{row.checked}</td>
-                        <td className="py-2 px-3 text-destructive">{row.withErrors}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
-        {/* Error Rates */}
-        <TabsContent value="errors">
-          <div className="rounded-xl border border-rekker-border bg-rekker-surface p-5">
-            <SectionTitle icon={Users} title="Error Rate Per Responsible Person" />
-            {loading ? <LoadingCard /> : errorRate.length === 0 ? (
-              <p className="text-muted-foreground text-sm py-10 text-center">No data yet.</p>
-            ) : (
-              <>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={errorRate} style={CHART_STYLE} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 17% 18%)" horizontal={false} />
-                    <XAxis type="number" unit="%" tick={{ fill: 'hsl(215 15% 50%)', fontSize: 10 }} domain={[0, 100]} />
-                    <YAxis dataKey="name" type="category" width={110} tick={{ fill: 'hsl(210 20% 92%)', fontSize: 11 }} />
-                    <Tooltip
-                      contentStyle={{ background: 'hsl(220 17% 10%)', border: '1px solid hsl(220 17% 18%)', borderRadius: 8, fontFamily: 'Sora' }}
-                      formatter={(v) => [`${v.toFixed(1)}%`, 'Error Rate']}
-                    />
-                    <Bar dataKey="errorRate" name="Error Rate" radius={[0, 4, 4, 0]}>
-                      {errorRate.map((entry, i) => (
-                        <Cell key={i} fill={entry.errorRate > 20 ? '#ef4444' : entry.errorRate > 10 ? '#f59e0b' : '#10b981'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-
-                <div className="mt-5 overflow-x-auto">
-                  <table className="w-full text-xs font-mono">
-                    <thead>
-                      <tr className="border-b border-border">
-                        {['Person', 'Total LPOs', 'Errors', 'Error Rate'].map((h) => (
-                          <th key={h} className="text-left py-2 px-3 text-muted-foreground uppercase tracking-wider">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {errorRate.map((row) => (
-                        <tr key={row._id} className="border-b border-border/50 hover:bg-accent/20 transition-colors">
-                          <td className="py-2 px-3 text-foreground font-medium">{row.name}</td>
-                          <td className="py-2 px-3 text-foreground">{row.totalLPOs}</td>
-                          <td className="py-2 px-3 text-destructive">{row.errorsCount}</td>
-                          <td className="py-2 px-3">
-                            <span className={`font-semibold ${row.errorRate > 20 ? 'text-destructive' : row.errorRate > 10 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                              {row.errorRate.toFixed(1)}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
-        </TabsContent>
-
-        {/* Time Analysis */}
-        <TabsContent value="time">
-          <div className="rounded-xl border border-rekker-border bg-rekker-surface p-5">
-            <SectionTitle icon={Clock} title="Average Processing Times" />
-            {loading ? <LoadingCard /> : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-2">
-                {[
-                  { label: 'Avg. Issue → Complete', value: timeAnalysis?.avgIssuedToCompleted, unit: 'min', color: 'text-primary' },
-                  { label: 'Avg. Complete → Check', value: timeAnalysis?.avgCompletedToChecked, unit: 'min', color: 'text-emerald-400' },
-                  { label: 'Fastest Processing', value: timeAnalysis?.minIssuedToCompleted, unit: 'min', color: 'text-blue-400' },
-                  { label: 'Slowest Processing', value: timeAnalysis?.maxIssuedToCompleted, unit: 'min', color: 'text-amber-400' },
-                ].map(({ label, value, unit, color }) => (
-                  <div key={label} className="rounded-lg border border-border bg-accent/30 p-4">
-                    <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">{label}</p>
-                    <p className={`text-3xl font-display tracking-wider mt-2 ${color}`}>
-                      {value != null ? Math.round(value) : '—'}
-                    </p>
-                    {value != null && <p className="text-xs text-muted-foreground mt-0.5">{unit}</p>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </TabsContent>
+        <TabsContent value="lpo"><LPOReport filters={filters} /></TabsContent>
+        <TabsContent value="invoice"><InvoiceReport filters={filters} /></TabsContent>
+        <TabsContent value="returns"><GoodsReturnReport filters={filters} /></TabsContent>
+        <TabsContent value="disparity"><DisparityProductReport filters={filters} /></TabsContent>
       </Tabs>
     </div>
   );

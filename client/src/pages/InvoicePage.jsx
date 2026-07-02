@@ -6,7 +6,7 @@ import {
   Plus, RefreshCw, Loader2, Search, FileCheck, AlertTriangle,
   CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp,
   CalendarDays, Receipt, Send, ThumbsUp, ThumbsDown,
-  Download, Edit2, Trash2, Pencil, Save, X,
+  Download, Edit2, Trash2, Pencil, Save, X, RotateCcw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -87,40 +87,78 @@ function RejectDialog({ open, onClose, onConfirm }) {
   );
 }
 
-// ── Edit Invoice Dialog (admin only) ──────────────────────────────────────────
+// ── Tax picker used inside the edit modal ────────────────────────────────────
+const VAT_RATE = 16;
+function editComputeTax({ amountExVat, taxMode, exemptAmount, overrideTaxAmount }) {
+  const sub = Number(amountExVat) || 0;
+  let exempt = Number(exemptAmount) || 0;
+  let override = Number(overrideTaxAmount) || 0;
+  if (taxMode === 'taxable') { exempt = 0; override = 0; }
+  else if (taxMode === 'exempt') { exempt = sub; override = 0; }
+  else if (taxMode === 'override') { exempt = 0; if (override < 0) override = 0; }
+  else { override = 0; if (exempt < 0) exempt = 0; if (exempt > sub) exempt = sub; }
+  const taxable = taxMode === 'override' ? sub : sub - exempt;
+  const vat     = taxMode === 'override' ? override : taxable * (VAT_RATE / 100);
+  const incl    = taxMode === 'override' ? sub + override : taxable + vat + exempt;
+  return { taxable, exempt, vat, incl };
+}
+
+// ── Edit Invoice Dialog (packaging team lead+) ───────────────────────────────
 function EditInvoiceDialog({ open, onClose, invoice, onUpdated }) {
   const [loading, setLoading] = useState(false);
+  const [lpoOptions, setLpoOptions] = useState([]);
   const [form, setForm] = useState({
-    invoiceNumber: '',
-    amountExVat:   '',
-    amountInclVat: '',
-    deliveredBy:   '',
+    invoiceNumber: '', amountExVat: '', deliveredBy: '', disparityReason: '',
+    date: '', lpoId: '', taxMode: 'taxable', exemptAmount: '', overrideTaxAmount: '',
+    returns: '',
   });
 
   useEffect(() => {
-    if (invoice) {
+    if (invoice && open) {
       setForm({
-        invoiceNumber: invoice.invoiceNumber || '',
-        amountExVat:   invoice.amountExVat   != null ? String(invoice.amountExVat) : '',
-        amountInclVat: invoice.amountInclVat != null ? String(invoice.amountInclVat) : '',
-        deliveredBy:   invoice.deliveredBy   || '',
+        invoiceNumber:     invoice.invoiceNumber || '',
+        amountExVat:       invoice.amountExVat != null ? String(invoice.amountExVat) : '',
+        deliveredBy:       invoice.deliveredBy || '',
+        disparityReason:   invoice.disparityReason || '',
+        date:              invoice.date ? new Date(invoice.date).toISOString().split('T')[0] : '',
+        lpoId:             invoice.lpo?._id || invoice.lpo || '',
+        taxMode:           invoice.taxMode || 'taxable',
+        exemptAmount:      invoice.exemptAmount != null ? String(invoice.exemptAmount) : '',
+        overrideTaxAmount: invoice.overrideTaxAmount != null ? String(invoice.overrideTaxAmount) : '',
+        returns:           invoice.returns || '',
       });
+      // Load available LPOs for re-linking (uninvoiced + this invoice's own LPO)
+      api.get('/lpos/uninvoiced').then((r) => {
+        const list = r.data || [];
+        if (invoice.lpo && !list.find((l) => l._id === (invoice.lpo._id || invoice.lpo))) {
+          list.unshift(invoice.lpo);
+        }
+        setLpoOptions(list);
+      }).catch(() => {});
     }
   }, [invoice, open]);
 
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: typeof e === 'string' ? e : e.target.value }));
+  const tax = editComputeTax(form);
 
   const handleSave = async () => {
     setLoading(true);
     try {
-      const res = await api.put(`/invoices/${invoice._id}`, {
-        invoiceNumber: form.invoiceNumber,
-        amountExVat:   Number(form.amountExVat),
-        amountInclVat: Number(form.amountInclVat),
-        deliveredBy:   form.deliveredBy,
-      });
+      const payload = {
+        invoiceNumber:     form.invoiceNumber,
+        amountExVat:       Number(form.amountExVat),
+        deliveredBy:       form.deliveredBy,
+        disparityReason:   form.disparityReason,
+        date:              form.date,
+        lpoId:             form.lpoId,
+        taxMode:           form.taxMode,
+        exemptAmount:      form.taxMode === 'mixed' ? Number(form.exemptAmount) || 0 : 0,
+        overrideTaxAmount: form.taxMode === 'override' ? Number(form.overrideTaxAmount) || 0 : 0,
+        returns:           form.returns,
+      };
+      const res = await api.put(`/invoices/${invoice._id}`, payload);
       onUpdated(res.data);
-      toast.success('Invoice updated');
+      toast.success('Invoice updated — totals recalculated');
       onClose();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update');
@@ -131,36 +169,101 @@ function EditInvoiceDialog({ open, onClose, invoice, onUpdated }) {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Invoice</DialogTitle>
-          <DialogDescription>Changes are logged in the audit trail.</DialogDescription>
+          <DialogDescription>All changes are audited. Disparity, VAT, and adjusted amount are recalculated automatically.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 mt-2">
-          <div className="space-y-1.5">
-            <Label>Invoice Number</Label>
-            <Input className="font-mono uppercase" value={form.invoiceNumber} onChange={set('invoiceNumber')} />
+        <div className="space-y-3 mt-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Invoice Number</Label>
+              <Input className="font-mono uppercase" value={form.invoiceNumber} onChange={set('invoiceNumber')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Invoice Date</Label>
+              <Input type="date" value={form.date} onChange={set('date')} />
+            </div>
           </div>
+
+          <div className="space-y-1.5">
+            <Label>Linked LPO</Label>
+            <Select value={form.lpoId} onValueChange={set('lpoId')}>
+              <SelectTrigger><SelectValue placeholder="Select LPO…" /></SelectTrigger>
+              <SelectContent>
+                {lpoOptions.map((l) => (
+                  <SelectItem key={l._id} value={l._id}>
+                    {l.lpoNumber} {l.branch?.name ? `— ${l.branch.name}` : ''} {l.amount != null ? `· KES ${fmtShort(l.amount)}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Amount ex-VAT</Label>
               <div className="relative">
                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono">KES</span>
-                <Input type="number" className="pl-9 font-mono" value={form.amountExVat} onChange={set('amountExVat')} />
+                <Input type="number" step="0.01" className="pl-9 font-mono" value={form.amountExVat} onChange={set('amountExVat')} />
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Amount incl. VAT</Label>
-              <div className="relative">
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono">KES</span>
-                <Input type="number" className="pl-9 font-mono" value={form.amountInclVat} onChange={set('amountInclVat')} />
-              </div>
+              <Label>Delivered By</Label>
+              <Input value={form.deliveredBy} onChange={set('deliveredBy')} />
             </div>
           </div>
+
+          {/* Tax picker (4 modes) */}
           <div className="space-y-1.5">
-            <Label>Delivered By</Label>
-            <Input placeholder="Name of delivery person…" value={form.deliveredBy} onChange={set('deliveredBy')} />
+            <Label className="text-xs">Tax Treatment</Label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {[
+                { v: 'taxable',  l: 'Taxable',  s: '+16%' },
+                { v: 'exempt',   l: 'Exempt',   s: 'No VAT' },
+                { v: 'mixed',    l: 'Mixed',    s: 'Exempt val' },
+                { v: 'override', l: 'Set VAT',  s: 'Direct' },
+              ].map((o) => (
+                <button key={o.v} type="button" onClick={() => set('taxMode')(o.v)}
+                  className={cn('px-2 py-1.5 rounded-md border text-left',
+                    form.taxMode === o.v ? 'border-primary bg-primary/10 text-primary'
+                                         : 'border-border text-muted-foreground hover:text-foreground')}>
+                  <p className="text-xs font-semibold">{o.l}</p>
+                  <p className="text-[10px] opacity-80">{o.s}</p>
+                </button>
+              ))}
+            </div>
+            {form.taxMode === 'mixed' && (
+              <div className="relative pt-1">
+                <span className="absolute left-2 top-[calc(50%+2px)] -translate-y-1/2 text-xs text-muted-foreground font-mono">KES</span>
+                <Input type="number" step="0.01" placeholder="Value of tax-exempt goods"
+                  className="pl-9 h-8 text-sm font-mono" value={form.exemptAmount} onChange={set('exemptAmount')} />
+              </div>
+            )}
+            {form.taxMode === 'override' && (
+              <div className="relative pt-1">
+                <span className="absolute left-2 top-[calc(50%+2px)] -translate-y-1/2 text-xs text-muted-foreground font-mono">KES</span>
+                <Input type="number" step="0.01" placeholder="Tax amount"
+                  className="pl-9 h-8 text-sm font-mono" value={form.overrideTaxAmount} onChange={set('overrideTaxAmount')} />
+              </div>
+            )}
+            <p className="text-[10px] text-muted-foreground font-mono">
+              Incl. VAT (recomputed): <span className="text-foreground">{fmt(tax.incl)}</span>
+            </p>
           </div>
+
+          <div className="space-y-1.5">
+            <Label>Disparity Reason</Label>
+            <Textarea rows={2} value={form.disparityReason} onChange={set('disparityReason')}
+              placeholder="Optional — recorded when invoice ≠ LPO amount"/>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Returns Note (legacy free-text)</Label>
+            <Textarea rows={2} value={form.returns} onChange={set('returns')}
+              placeholder="For structured returns use the Adjustments dialog." />
+          </div>
+
           <div className="flex gap-2 pt-1">
             <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
             <Button className="flex-1" onClick={handleSave} disabled={loading}>
@@ -169,6 +272,111 @@ function EditInvoiceDialog({ open, onClose, invoice, onUpdated }) {
             </Button>
           </div>
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Adjustments Dialog ───────────────────────────────────────────────────────
+const ADJ_LABELS = {
+  returned_goods: 'Returned Goods',
+  not_delivered:  'Not Delivered',
+  control_list:   'Control List',
+  other:          'Other',
+};
+
+function AdjustmentsDialog({ open, onClose, invoice, onUpdated, canEdit }) {
+  const [type, setType] = useState('returned_goods');
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const adjustments = invoice?.adjustments || [];
+  const total = adjustments.reduce((s, a) => s + Number(a.amount || 0), 0);
+
+  const add = async () => {
+    if (!amount || Number(amount) <= 0) return toast.error('Enter an amount');
+    setBusy(true);
+    try {
+      const res = await api.post(`/invoices/${invoice._id}/adjustments`, {
+        type, amount: Number(amount), reason,
+      });
+      onUpdated(res.data);
+      setAmount(''); setReason('');
+      toast.success('Adjustment added');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add');
+    } finally { setBusy(false); }
+  };
+
+  const remove = async (adjId) => {
+    if (!window.confirm('Remove this adjustment?')) return;
+    try {
+      const res = await api.delete(`/invoices/${invoice._id}/adjustments/${adjId}`);
+      onUpdated(res.data);
+      toast.success('Adjustment removed');
+    } catch { toast.error('Failed to remove'); }
+  };
+
+  if (!invoice) return null;
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md max-h-[92vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Invoice Adjustments — {invoice.invoiceNumber}</DialogTitle>
+          <DialogDescription>
+            Original amount stays immutable for audit. Adjusted total is amount − Σ adjustments.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2 mt-2 text-xs font-mono">
+          <div className="flex justify-between"><span className="text-muted-foreground">Original (incl. VAT)</span><span>{fmt(invoice.amountInclVat)}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Adjustments total</span><span className="text-amber-400">−{fmt(total)}</span></div>
+          <div className="flex justify-between text-sm pt-1 border-t border-border"><span>Adjusted</span><span className="font-semibold">{fmt(invoice.adjustedAmount ?? invoice.amountInclVat)}</span></div>
+        </div>
+
+        {adjustments.length > 0 && (
+          <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto">
+            {adjustments.map((a) => (
+              <div key={a._id} className="flex items-start gap-2 rounded-md border border-border px-2.5 py-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-[9px]">{ADJ_LABELS[a.type] || a.type}</Badge>
+                    <span className="font-mono text-xs">{fmt(a.amount)}</span>
+                  </div>
+                  {a.reason && <p className="text-[11px] text-muted-foreground mt-0.5 whitespace-pre-wrap break-words">{a.reason}</p>}
+                </div>
+                {canEdit && (
+                  <button onClick={() => remove(a._id)} className="text-muted-foreground hover:text-destructive p-1">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {canEdit && (
+          <div className="mt-3 pt-3 border-t border-border space-y-2">
+            <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Add adjustment</p>
+            <Select value={type} onValueChange={setType}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.entries(ADJ_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono">KES</span>
+              <Input type="number" step="0.01" placeholder="Amount"
+                className="pl-9 h-8 font-mono" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </div>
+            <Textarea rows={2} placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+            <Button className="w-full" size="sm" onClick={add} disabled={busy}>
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              Add adjustment
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -240,6 +448,7 @@ function InvoiceRow({ invoice, onUpdated, onDeleted, isAdmin, canEdit, i }) {
   const [loadingAction, setLoadingAction] = useState(null);
   const [rejectOpen, setRejectOpen]       = useState(false);
   const [editOpen, setEditOpen]           = useState(false);
+  const [adjOpen, setAdjOpen]             = useState(false);
 
   const doAction = async (action, extra = {}) => {
     setLoadingAction(action);
@@ -369,7 +578,51 @@ function InvoiceRow({ invoice, onUpdated, onDeleted, isAdmin, canEdit, i }) {
           )}
         </td>
 
-        {/* LPO prepared by */}
+        {/* Disparity Reason (with expand-on-click) */}
+        <td className="px-3 py-3 max-w-[180px]">
+          {invoice.disparityReason ? (
+            <TooltipProvider><Tooltip>
+              <TooltipTrigger asChild>
+                <p className="text-[11px] text-foreground line-clamp-2 cursor-help whitespace-pre-wrap break-words">
+                  {invoice.disparityReason}
+                </p>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-md text-xs whitespace-pre-wrap break-words">
+                {invoice.disparityReason}
+              </TooltipContent>
+            </Tooltip></TooltipProvider>
+          ) : (
+            <span className="text-muted-foreground/50 italic text-[11px]">—</span>
+          )}
+        </td>
+
+        {/* Adjustments — original vs adjusted */}
+        <td className="px-3 py-3 whitespace-nowrap">
+          {(() => {
+            const adjs = invoice.adjustments || [];
+            const total = adjs.reduce((s, a) => s + Number(a.amount || 0), 0);
+            if (!adjs.length) {
+              return (
+                <button onClick={() => canEdit && setAdjOpen(true)}
+                  className={cn('text-[11px] font-mono text-muted-foreground/60 italic', canEdit && 'hover:text-primary')}>
+                  none
+                </button>
+              );
+            }
+            const types = [...new Set(adjs.map((a) => a.type))];
+            return (
+              <button onClick={() => setAdjOpen(true)} className="flex flex-col items-start gap-0.5 hover:text-primary">
+                <span className="text-xs font-mono text-amber-400">−{fmtShort(total)}</span>
+                <span className="text-[9px] font-mono text-foreground">→ {fmtShort(invoice.adjustedAmount ?? invoice.amountInclVat)}</span>
+                <div className="flex flex-wrap gap-0.5">
+                  {types.map((t) => (
+                    <Badge key={t} variant="outline" className="text-[8px] py-0 h-3.5">{ADJ_LABELS[t] || t}</Badge>
+                  ))}
+                </div>
+              </button>
+            );
+          })()}
+        </td>
         <td className="px-3 py-3 whitespace-nowrap text-xs text-foreground">{preparedBy}</td>
 
         {/* Delivered By */}
@@ -439,8 +692,20 @@ function InvoiceRow({ invoice, onUpdated, onDeleted, isAdmin, canEdit, i }) {
                 </TooltipContent>
               </Tooltip></TooltipProvider>
             )}
-            {/* Edit (admin) */}
-            {isAdmin && (
+            {/* Adjustments (any role that can edit) */}
+            {canEdit && (
+              <TooltipProvider><Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-7 px-2"
+                    onClick={() => setAdjOpen(true)}>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Adjustments (returns / not delivered / other)</TooltipContent>
+              </Tooltip></TooltipProvider>
+            )}
+            {/* Edit (packaging team lead+) */}
+            {canEdit && (
               <TooltipProvider><Tooltip>
                 <TooltipTrigger asChild>
                   <Button size="sm" variant="ghost" className="h-7 px-2"
@@ -473,6 +738,9 @@ function InvoiceRow({ invoice, onUpdated, onDeleted, isAdmin, canEdit, i }) {
 
       <EditInvoiceDialog open={editOpen} onClose={() => setEditOpen(false)}
         invoice={invoice} onUpdated={onUpdated} />
+
+      <AdjustmentsDialog open={adjOpen} onClose={() => setAdjOpen(false)}
+        invoice={invoice} onUpdated={onUpdated} canEdit={canEdit} />
     </>
   );
 }
@@ -480,8 +748,8 @@ function InvoiceRow({ invoice, onUpdated, onDeleted, isAdmin, canEdit, i }) {
 // ── Day Section ───────────────────────────────────────────────────────────────
 const HEADERS = [
   'Invoice No.', 'LPO No.', 'Branch', 'LPO Amount',
-  'Ex-VAT', 'Incl. VAT', 'Disparity', 'Prepared By',
-  'Delivered By', 'Returns', 'Status', 'Actions',
+  'Ex-VAT', 'Incl. VAT', 'Disparity', 'Disparity Reason', 'Adjustments',
+  'Prepared By', 'Delivered By', 'Returns', 'Status', 'Actions',
 ];
 
 function InvoiceDaySection({ date, invoices: init, onUpdated, onDeleted, isAdmin, canEdit, defaultOpen }) {

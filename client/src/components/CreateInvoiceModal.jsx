@@ -38,33 +38,45 @@ function fmt(n) {
 }
 
 // ── Tax treatment computed values ────────────────────────────────────────────
-function computeTax({ amountExVat, taxMode, exemptAmount, vatRate = VAT_RATE }) {
+function computeTax({ amountExVat, taxMode, exemptAmount, overrideTaxAmount, vatRate = VAT_RATE }) {
   const sub = Number(amountExVat) || 0;
   let exempt = Number(exemptAmount) || 0;
-  if (taxMode === 'taxable') exempt = 0;
-  else if (taxMode === 'exempt') exempt = sub;
+  let override = Number(overrideTaxAmount) || 0;
+  if (taxMode === 'taxable') { exempt = 0; override = 0; }
+  else if (taxMode === 'exempt') { exempt = sub; override = 0; }
+  else if (taxMode === 'override') { exempt = 0; if (override < 0) override = 0; }
   else {
+    override = 0;
     if (exempt < 0) exempt = 0;
     if (exempt > sub) exempt = sub;
   }
-  const taxable = sub - exempt;
-  const vat     = taxable * (vatRate / 100);
-  const incl    = taxable + vat + exempt;
+  let vat, incl, taxable;
+  if (taxMode === 'override') {
+    taxable = sub; vat = override; incl = sub + override;
+  } else {
+    taxable = sub - exempt;
+    vat     = taxable * (vatRate / 100);
+    incl    = taxable + vat + exempt;
+  }
   return { taxable, exempt, vat, incl };
 }
 
 // ── Tax treatment picker ─────────────────────────────────────────────────────
-function TaxTreatmentPicker({ taxMode, setTaxMode, exemptAmount, setExemptAmount, amountExVat, compact = false }) {
-  const tax = computeTax({ amountExVat, taxMode, exemptAmount });
+function TaxTreatmentPicker({
+  taxMode, setTaxMode, exemptAmount, setExemptAmount,
+  overrideTaxAmount, setOverrideTaxAmount, amountExVat, compact = false,
+}) {
+  const tax = computeTax({ amountExVat, taxMode, exemptAmount, overrideTaxAmount });
   const OPTS = [
-    { val: 'taxable', label: 'Taxable',    sub: `+${VAT_RATE}% VAT`         },
-    { val: 'exempt',  label: 'Exempt',     sub: 'No VAT charged'            },
-    { val: 'mixed',   label: 'Mixed',      sub: 'Part exempt, part taxable' },
+    { val: 'taxable',  label: 'Taxable',   sub: `+${VAT_RATE}% VAT`         },
+    { val: 'exempt',   label: 'Exempt',    sub: 'No VAT charged'            },
+    { val: 'mixed',    label: 'Mixed',     sub: 'Enter exempt value'        },
+    { val: 'override', label: 'Set VAT',   sub: 'Enter tax amount directly' },
   ];
   return (
     <div className={cn('space-y-2', compact && 'space-y-1.5')}>
       <Label className="text-xs">Tax Treatment</Label>
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5">
         {OPTS.map((o) => (
           <button
             key={o.val}
@@ -85,7 +97,7 @@ function TaxTreatmentPicker({ taxMode, setTaxMode, exemptAmount, setExemptAmount
 
       {taxMode === 'mixed' && (
         <div className="space-y-1 pt-1">
-          <Label className="text-[11px] text-muted-foreground">Exempt portion (KES)</Label>
+          <Label className="text-[11px] text-muted-foreground">Value of tax-exempt goods (KES)</Label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono">KES</span>
             <Input
@@ -97,6 +109,24 @@ function TaxTreatmentPicker({ taxMode, setTaxMode, exemptAmount, setExemptAmount
           </div>
           <p className="text-[10px] text-muted-foreground font-mono">
             Taxable {fmt(tax.taxable)} · VAT {fmt(tax.vat)} · Exempt {fmt(tax.exempt)}
+          </p>
+        </div>
+      )}
+
+      {taxMode === 'override' && (
+        <div className="space-y-1 pt-1">
+          <Label className="text-[11px] text-muted-foreground">VAT amount (KES)</Label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono">KES</span>
+            <Input
+              type="number" min="0" step="0.01" placeholder="0.00"
+              value={overrideTaxAmount || ''}
+              onChange={(e) => setOverrideTaxAmount(e.target.value)}
+              className="pl-10 h-8 text-sm font-mono"
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground font-mono">
+            Ex-VAT {fmt(tax.taxable)} · VAT {fmt(tax.vat)} · Incl. {fmt(tax.incl)}
           </p>
         </div>
       )}
@@ -210,6 +240,7 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
   const [date, setDate]                       = useState(new Date().toISOString().split('T')[0]);
   const [taxMode, setTaxMode]                 = useState('taxable');
   const [exemptAmount, setExemptAmount]       = useState('');
+  const [overrideTaxAmount, setOverrideTaxAmount] = useState('');
   const [loading, setLoading]                 = useState(false);
 
   useEffect(() => {
@@ -219,7 +250,7 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
     }
   }, [prefillLpo]);
 
-  const tax = computeTax({ amountExVat, taxMode, exemptAmount });
+  const tax = computeTax({ amountExVat, taxMode, exemptAmount, overrideTaxAmount });
   const disparity = selectedLpo?.amount != null && amountExVat !== ''
     ? Number(amountExVat) - Number(selectedLpo.amount) : null;
   const hasDisparity = disparity != null && Math.abs(disparity) > 0.01;
@@ -247,7 +278,8 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
         amountInclVat:  Number(tax.incl.toFixed(2)),
         vatRate:        VAT_RATE,
         taxMode,
-        exemptAmount:   taxMode === 'mixed' ? Number(exemptAmount) || 0 : 0,
+        exemptAmount:      taxMode === 'mixed'    ? Number(exemptAmount) || 0 : 0,
+        overrideTaxAmount: taxMode === 'override' ? Number(overrideTaxAmount) || 0 : 0,
         disparityReason: hasDisparity ? disparityReason : '',
         deliveredBy,
         date,
@@ -309,6 +341,7 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
       <TaxTreatmentPicker
         taxMode={taxMode} setTaxMode={setTaxMode}
         exemptAmount={exemptAmount} setExemptAmount={setExemptAmount}
+        overrideTaxAmount={overrideTaxAmount} setOverrideTaxAmount={setOverrideTaxAmount}
         amountExVat={amountExVat}
       />
 
@@ -366,6 +399,7 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
   const [date, setDate]                         = useState(new Date().toISOString().split('T')[0]);
   const [taxMode, setTaxMode]                   = useState('taxable');
   const [exemptAmount, setExemptAmount]         = useState('');
+  const [overrideTaxAmount, setOverrideTaxAmount] = useState('');
   const [loading, setLoading]                   = useState(false);
   const [search, setSearch]                     = useState('');
 
@@ -394,7 +428,7 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
     });
     setRows((prev) => {
       if (prev[lpoId]) return prev;
-      return { ...prev, [lpoId]: { invoiceNumber: '', amountExVat: lpo.amount != null ? String(lpo.amount) : '' } };
+      return { ...prev, [lpoId]: { invoiceNumber: '', amountExVat: lpo.amount != null ? String(lpo.amount) : '', disparityReason: '' } };
     });
   };
 
@@ -405,7 +439,7 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
     setRows((prev) => {
       const next = { ...prev };
       selectedGroup.lpos.forEach((l) => {
-        if (!next[l._id]) next[l._id] = { invoiceNumber: '', amountExVat: l.amount != null ? String(l.amount) : '' };
+        if (!next[l._id]) next[l._id] = { invoiceNumber: '', amountExVat: l.amount != null ? String(l.amount) : '', disparityReason: '' };
       });
       return next;
     });
@@ -416,25 +450,35 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
   };
 
   const totalExVat = selectedLpoIds.reduce((s, id) => s + (Number(rows[id]?.amountExVat) || 0), 0);
-  const tax = computeTax({ amountExVat: totalExVat, taxMode, exemptAmount });
+  const tax = computeTax({ amountExVat: totalExVat, taxMode, exemptAmount, overrideTaxAmount });
 
   const handleSubmit = async () => {
     if (!selectedLpoIds.length) return toast.error('Select at least one LPO');
+    const lpoById = Object.fromEntries((selectedGroup?.lpos || []).map((l) => [l._id, l]));
     const items = selectedLpoIds.map((id) => {
       const r = rows[id] || {};
       return {
         lpoId: id,
         invoiceNumber: (r.invoiceNumber || '').trim().toUpperCase(),
         amountExVat: Number(r.amountExVat) || 0,
-        // Per-invoice tax treatment mirrors the shared setting.
-        // For "mixed", we split the shared exempt total pro-rata by amount.
         taxMode,
         exemptAmount: 0,
+        overrideTaxAmount: 0,
+        disparityReason: (r.disparityReason || '').trim(),
+        _lpoAmount: lpoById[id]?.amount ?? null,
       };
     });
 
     if (items.some((i) => !i.invoiceNumber)) return toast.error('Every LPO needs an invoice number');
     if (items.some((i) => !i.amountExVat))    return toast.error('Every LPO needs an amount');
+
+    // Per-invoice disparity check — require reason if disparate
+    const missingReason = items.find((i) => {
+      if (i._lpoAmount == null) return false;
+      return Math.abs(i.amountExVat - Number(i._lpoAmount)) > 0.01 && !i.disparityReason;
+    });
+    if (missingReason) return toast.error(`Enter a disparity reason for ${missingReason.invoiceNumber || 'the disparate LPO'}`);
+    items.forEach((i) => { delete i._lpoAmount; });
 
     // Pro-rata split the shared exempt amount (mixed mode only)
     if (taxMode === 'mixed') {
@@ -445,6 +489,12 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
       }
     } else if (taxMode === 'exempt') {
       items.forEach((i) => { i.exemptAmount = i.amountExVat; });
+    } else if (taxMode === 'override') {
+      const total = items.reduce((s, i) => s + i.amountExVat, 0);
+      const overrideTotal = Number(overrideTaxAmount) || 0;
+      if (total > 0) {
+        items.forEach((i) => { i.overrideTaxAmount = Number((i.amountExVat / total * overrideTotal).toFixed(2)); });
+      }
     }
 
     // Duplicate invoice number check locally
@@ -549,6 +599,7 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
           <TaxTreatmentPicker
             taxMode={taxMode} setTaxMode={setTaxMode}
             exemptAmount={exemptAmount} setExemptAmount={setExemptAmount}
+            overrideTaxAmount={overrideTaxAmount} setOverrideTaxAmount={setOverrideTaxAmount}
             amountExVat={totalExVat}
           />
           {taxMode === 'mixed' && (
@@ -556,21 +607,31 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
               The exempt portion is split pro-rata across selected LPOs by their amount.
             </p>
           )}
+          {taxMode === 'override' && (
+            <p className="text-[10px] text-muted-foreground -mt-1">
+              The VAT amount is split pro-rata across selected LPOs by their amount.
+            </p>
+          )}
 
           {/* LPO rows */}
           <div className="rounded-lg border border-border overflow-hidden">
-            <div className="grid grid-cols-[auto_1fr_1.2fr_1fr] gap-2 px-3 py-2 bg-rekker-surface/60 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+            <div className="grid grid-cols-[auto_1fr_1.1fr_0.9fr_1.3fr] gap-2 px-3 py-2 bg-rekker-surface/60 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
               <span></span>
               <span>LPO</span>
               <span>Invoice #</span>
-              <span className="text-right">Amount (ex-VAT)</span>
+              <span className="text-right">Amount</span>
+              <span>Disparity Reason</span>
             </div>
-            <div className="max-h-64 overflow-y-auto divide-y divide-border">
+            <div className="max-h-72 overflow-y-auto divide-y divide-border">
               {selectedGroup.lpos.map((lpo) => {
                 const checked = selectedLpoIds.includes(lpo._id);
-                const row = rows[lpo._id] || { invoiceNumber: '', amountExVat: '' };
+                const row = rows[lpo._id] || { invoiceNumber: '', amountExVat: '', disparityReason: '' };
+                const rowAmt = Number(row.amountExVat) || 0;
+                const disp = lpo.amount != null && rowAmt !== 0
+                  ? rowAmt - Number(lpo.amount) : 0;
+                const hasDisp = Math.abs(disp) > 0.01 && lpo.amount != null;
                 return (
-                  <div key={lpo._id} className={cn('grid grid-cols-[auto_1fr_1.2fr_1fr] gap-2 items-center px-3 py-2',
+                  <div key={lpo._id} className={cn('grid grid-cols-[auto_1fr_1.1fr_0.9fr_1.3fr] gap-2 items-center px-3 py-2',
                     checked ? 'bg-primary/5' : '')}>
                     <input type="checkbox" checked={checked}
                       onChange={() => toggleLpo(lpo._id, lpo)}
@@ -593,11 +654,18 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
                         value={row.amountExVat}
                         onChange={(e) => updateRow(lpo._id, 'amountExVat', e.target.value)} />
                     </div>
+                    <Input
+                      placeholder={hasDisp ? `Reason (${disp > 0 ? '+' : ''}${fmt(disp)})` : 'Optional…'}
+                      className={cn('h-7 text-xs', hasDisp && checked && !row.disparityReason && 'border-amber-500/60')}
+                      disabled={!checked}
+                      value={row.disparityReason || ''}
+                      onChange={(e) => updateRow(lpo._id, 'disparityReason', e.target.value)} />
                   </div>
                 );
               })}
             </div>
           </div>
+
 
           {selectedLpoIds.length > 0 && (
             <div className="rounded-lg border border-border bg-accent/20 px-3 py-2 space-y-1 text-xs font-mono">

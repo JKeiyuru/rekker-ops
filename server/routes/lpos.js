@@ -217,11 +217,72 @@ router.patch('/:id/errors', protect, authorize('super_admin', 'admin', 'team_lea
   }
 });
 
-// PUT /api/lpos/:id — full update (admin)
-router.put('/:id', protect, authorize('super_admin', 'admin'), async (req, res) => {
+// PUT /api/lpos/:id — edit LPO. Packaging Team Lead+ allowed.
+// After save, cascades and recomputes disparity on every linked invoice.
+router.put('/:id', protect, authorize('super_admin', 'admin', 'team_lead', 'packaging_team_lead'), async (req, res) => {
   try {
-    const lpo = await LPO.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate(POPULATE);
+    const lpo = await LPO.findById(req.params.id);
     if (!lpo) return res.status(404).json({ message: 'LPO not found' });
+
+    const {
+      lpoNumber, branchId, branchNameRaw, customer, amount, date, deliveryDate,
+      responsiblePerson, notes, items,
+    } = req.body;
+
+    const fieldsChanged = [];
+    const snapshot = {};
+    const track = (field, newVal) => {
+      const old = lpo[field];
+      if (String(old) !== String(newVal)) {
+        fieldsChanged.push(field);
+        snapshot[field] = old;
+        lpo[field] = newVal;
+      }
+    };
+
+    if (lpoNumber) {
+      const upper = String(lpoNumber).toUpperCase();
+      if (upper !== lpo.lpoNumber) {
+        // Uniqueness within (branch, lpoNumber)
+        const dupBranch = branchId !== undefined ? (branchId || null) : lpo.branch;
+        const dup = await LPO.findOne({ lpoNumber: upper, branch: dupBranch, _id: { $ne: lpo._id } });
+        if (dup) return res.status(400).json({ message: 'LPO number already exists for this branch' });
+        track('lpoNumber', upper);
+      }
+    }
+    if (branchId !== undefined)     track('branch', branchId || null);
+    if (branchNameRaw !== undefined) track('branchNameRaw', branchNameRaw || '');
+    if (customer !== undefined)      track('customer', customer || '');
+    if (amount !== undefined)        track('amount', amount == null || amount === '' ? null : Number(amount));
+    if (date)                        track('date', new Date(date));
+    if (deliveryDate)                track('deliveryDate', new Date(deliveryDate));
+    if (responsiblePerson)           track('responsiblePerson', responsiblePerson);
+    if (notes !== undefined)         track('notes', notes || '');
+    if (Array.isArray(items)) { snapshot.items = lpo.items; lpo.items = items; fieldsChanged.push('items'); }
+
+    if (fieldsChanged.length) {
+      lpo.isEdited = true;
+      lpo.editedAt = new Date();
+      lpo.editedBy = req.user._id;
+      lpo.editHistory.push({
+        editedAt: new Date(), editedBy: req.user._id, fieldsChanged, snapshot,
+      });
+    }
+
+    await lpo.save();
+
+    // Cascading recalc: if amount changed, update every linked invoice's disparity
+    if (fieldsChanged.includes('amount')) {
+      const Invoice = require('../models/Invoice');
+      const invoicesRoute = require('./invoices');
+      const linked = await Invoice.find({ lpo: lpo._id });
+      for (const inv of linked) {
+        invoicesRoute.recomputeDisparity(inv, lpo.amount);
+        await inv.save();
+      }
+    }
+
+    await lpo.populate(POPULATE);
     res.json(lpo);
   } catch (err) {
     res.status(500).json({ message: err.message });
