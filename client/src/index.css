@@ -101,6 +101,27 @@
   ::-webkit-scrollbar-track { background: hsl(var(--background)); }
   ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+
+  /* Dark-mode: make the native calendar / time pickers visible */
+  :root.dark input[type="date"]::-webkit-calendar-picker-indicator,
+  :root.dark input[type="time"]::-webkit-calendar-picker-indicator,
+  :root.dark input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  :root.dark input[type="month"]::-webkit-calendar-picker-indicator,
+  :root.dark input[type="week"]::-webkit-calendar-picker-indicator {
+    filter: invert(1) brightness(1.4);
+    opacity: 0.85;
+    cursor: pointer;
+  }
+  :root.dark input[type="date"],
+  :root.dark input[type="time"],
+  :root.dark input[type="datetime-local"] {
+    color-scheme: dark;
+  }
+  :root.light input[type="date"],
+  :root.light input[type="time"],
+  :root.light input[type="datetime-local"] {
+    color-scheme: light;
+  }
 }
 
 /* Override hardcoded rekker.* utility classes so they follow the theme.

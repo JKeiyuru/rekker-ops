@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import DisparityItemsEditor from '@/components/DisparityItemsEditor';
 
 const VAT_RATE = 16;
 
@@ -236,6 +237,7 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
   const [selectedLpo, setSelectedLpo]         = useState(null);
   const [amountExVat, setAmountExVat]         = useState('');
   const [disparityReason, setDisparityReason] = useState('');
+  const [disparityItems, setDisparityItems]   = useState([]);
   const [deliveredBy, setDeliveredBy]         = useState('');
   const [date, setDate]                       = useState(new Date().toISOString().split('T')[0]);
   const [taxMode, setTaxMode]                 = useState('taxable');
@@ -258,6 +260,7 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
   const handleLpoSelect = (lpo) => {
     setSelectedLpo(lpo);
     setDisparityReason('');
+    setDisparityItems([]);
     if (lpo?.amount != null) setAmountExVat(String(lpo.amount));
     else setAmountExVat('');
   };
@@ -281,6 +284,9 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
         exemptAmount:      taxMode === 'mixed'    ? Number(exemptAmount) || 0 : 0,
         overrideTaxAmount: taxMode === 'override' ? Number(overrideTaxAmount) || 0 : 0,
         disparityReason: hasDisparity ? disparityReason : '',
+        disparityItems:  hasDisparity
+          ? (disparityItems || []).filter((d) => d.product && String(d.product).trim() !== '')
+          : [],
         deliveredBy,
         date,
       });
@@ -369,11 +375,14 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
             </p>
           </div>
           {hasDisparity && (
-            <div className="space-y-1.5">
-              <Label className="text-amber-400/80">Reason for Disparity <span className="text-muted-foreground font-normal">(required)</span></Label>
-              <Textarea placeholder="e.g. Price adjustment agreed with branch manager…"
-                value={disparityReason} onChange={(e) => setDisparityReason(e.target.value)}
-                rows={2} className="border-amber-500/30 focus-visible:ring-amber-500/40 text-sm" />
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-amber-400/80">Reason for Disparity <span className="text-muted-foreground font-normal">(required)</span></Label>
+                <Textarea placeholder="e.g. Price adjustment agreed with branch manager…"
+                  value={disparityReason} onChange={(e) => setDisparityReason(e.target.value)}
+                  rows={2} className="border-amber-500/30 focus-visible:ring-amber-500/40 text-sm" />
+              </div>
+              <DisparityItemsEditor value={disparityItems} onChange={setDisparityItems} />
             </div>
           )}
         </div>
@@ -428,7 +437,7 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
     });
     setRows((prev) => {
       if (prev[lpoId]) return prev;
-      return { ...prev, [lpoId]: { invoiceNumber: '', amountExVat: lpo.amount != null ? String(lpo.amount) : '', disparityReason: '' } };
+      return { ...prev, [lpoId]: { invoiceNumber: '', amountExVat: lpo.amount != null ? String(lpo.amount) : '', disparityReason: '', disparityItems: [] } };
     });
   };
 
@@ -439,7 +448,7 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
     setRows((prev) => {
       const next = { ...prev };
       selectedGroup.lpos.forEach((l) => {
-        if (!next[l._id]) next[l._id] = { invoiceNumber: '', amountExVat: l.amount != null ? String(l.amount) : '', disparityReason: '' };
+        if (!next[l._id]) next[l._id] = { invoiceNumber: '', amountExVat: l.amount != null ? String(l.amount) : '', disparityReason: '', disparityItems: [] };
       });
       return next;
     });
@@ -465,6 +474,7 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
         exemptAmount: 0,
         overrideTaxAmount: 0,
         disparityReason: (r.disparityReason || '').trim(),
+        disparityItems: (r.disparityItems || []).filter((d) => d && d.product && String(d.product).trim() !== ''),
         _lpoAmount: lpoById[id]?.amount ?? null,
       };
     });
@@ -631,35 +641,49 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
                   ? rowAmt - Number(lpo.amount) : 0;
                 const hasDisp = Math.abs(disp) > 0.01 && lpo.amount != null;
                 return (
-                  <div key={lpo._id} className={cn('grid grid-cols-[auto_1fr_1.1fr_0.9fr_1.3fr] gap-2 items-center px-3 py-2',
-                    checked ? 'bg-primary/5' : '')}>
-                    <input type="checkbox" checked={checked}
-                      onChange={() => toggleLpo(lpo._id, lpo)}
-                      className="w-4 h-4 rounded border-border shrink-0" />
-                    <div className="min-w-0">
-                      <p className="font-mono text-xs font-semibold text-foreground tracking-wider">{lpo.lpoNumber}</p>
-                      {lpo.amount != null && (
-                        <p className="text-[10px] font-mono text-muted-foreground">LPO KES {fmt(lpo.amount)}</p>
-                      )}
-                    </div>
-                    <Input placeholder="INV-…" className="h-7 text-xs font-mono uppercase"
-                      disabled={!checked}
-                      value={row.invoiceNumber}
-                      onChange={(e) => updateRow(lpo._id, 'invoiceNumber', e.target.value)} />
-                    <div className="relative">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-mono">KES</span>
-                      <Input type="number" min="0" step="0.01" placeholder="0.00"
-                        className="pl-9 h-7 text-xs font-mono text-right"
+                  <div key={lpo._id} className={cn('px-3 py-2', checked ? 'bg-primary/5' : '')}>
+                    <div className="grid grid-cols-[auto_1fr_1.1fr_0.9fr_1.3fr] gap-2 items-center">
+                      <input type="checkbox" checked={checked}
+                        onChange={() => toggleLpo(lpo._id, lpo)}
+                        className="w-4 h-4 rounded border-border shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs font-semibold text-foreground tracking-wider">{lpo.lpoNumber}</p>
+                        {lpo.amount != null && (
+                          <p className="text-[10px] font-mono text-muted-foreground">LPO KES {fmt(lpo.amount)}</p>
+                        )}
+                      </div>
+                      <Input placeholder="INV-…" className="h-7 text-xs font-mono uppercase"
                         disabled={!checked}
-                        value={row.amountExVat}
-                        onChange={(e) => updateRow(lpo._id, 'amountExVat', e.target.value)} />
+                        value={row.invoiceNumber}
+                        onChange={(e) => updateRow(lpo._id, 'invoiceNumber', e.target.value)} />
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-mono">KES</span>
+                        <Input type="number" min="0" step="0.01" placeholder="0.00"
+                          className="pl-9 h-7 text-xs font-mono text-right"
+                          disabled={!checked}
+                          value={row.amountExVat}
+                          onChange={(e) => updateRow(lpo._id, 'amountExVat', e.target.value)} />
+                      </div>
+                      <Input
+                        placeholder={hasDisp ? `Reason (${disp > 0 ? '+' : ''}${fmt(disp)})` : 'Optional…'}
+                        className={cn('h-7 text-xs', hasDisp && checked && !row.disparityReason && 'border-amber-500/60')}
+                        disabled={!checked}
+                        value={row.disparityReason || ''}
+                        onChange={(e) => updateRow(lpo._id, 'disparityReason', e.target.value)} />
                     </div>
-                    <Input
-                      placeholder={hasDisp ? `Reason (${disp > 0 ? '+' : ''}${fmt(disp)})` : 'Optional…'}
-                      className={cn('h-7 text-xs', hasDisp && checked && !row.disparityReason && 'border-amber-500/60')}
-                      disabled={!checked}
-                      value={row.disparityReason || ''}
-                      onChange={(e) => updateRow(lpo._id, 'disparityReason', e.target.value)} />
+
+                    {/* Structured disparity items — appear inline whenever this row is checked & has a disparity */}
+                    {checked && hasDisp && (
+                      <div className="mt-2 ml-6 pl-3 border-l-2 border-amber-500/30">
+                        <DisparityItemsEditor
+                          value={row.disparityItems || []}
+                          onChange={(next) => updateRow(lpo._id, 'disparityItems', next)}
+                          compact
+                          label="Products causing this disparity"
+                          emptyHint="Add each product + qty that caused the mismatch (feeds Disparity Product Report)."
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}

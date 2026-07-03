@@ -6,7 +6,7 @@ import {
   Plus, RefreshCw, Loader2, Search, FileCheck, AlertTriangle,
   CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp,
   CalendarDays, Receipt, Send, ThumbsUp, ThumbsDown,
-  Download, Edit2, Trash2, Pencil, Save, X, RotateCcw,
+  Download, Edit2, Trash2, Pencil, Save, X, RotateCcw, FileSpreadsheet, FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,8 @@ import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 import CreateInvoiceModal from '@/components/CreateInvoiceModal';
+import DisparityItemsEditor, { summarizeDisparityItems } from '@/components/DisparityItemsEditor';
+import { exportToPDF, exportToExcel } from '@/lib/reportExport';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n) {
@@ -110,7 +112,7 @@ function EditInvoiceDialog({ open, onClose, invoice, onUpdated }) {
   const [form, setForm] = useState({
     invoiceNumber: '', amountExVat: '', deliveredBy: '', disparityReason: '',
     date: '', lpoId: '', taxMode: 'taxable', exemptAmount: '', overrideTaxAmount: '',
-    returns: '',
+    returns: '', disparityItems: [],
   });
 
   useEffect(() => {
@@ -126,6 +128,7 @@ function EditInvoiceDialog({ open, onClose, invoice, onUpdated }) {
         exemptAmount:      invoice.exemptAmount != null ? String(invoice.exemptAmount) : '',
         overrideTaxAmount: invoice.overrideTaxAmount != null ? String(invoice.overrideTaxAmount) : '',
         returns:           invoice.returns || '',
+        disparityItems:    Array.isArray(invoice.disparityItems) ? invoice.disparityItems : [],
       });
       // Load available LPOs for re-linking (uninvoiced + this invoice's own LPO)
       api.get('/lpos/uninvoiced').then((r) => {
@@ -155,6 +158,7 @@ function EditInvoiceDialog({ open, onClose, invoice, onUpdated }) {
         exemptAmount:      form.taxMode === 'mixed' ? Number(form.exemptAmount) || 0 : 0,
         overrideTaxAmount: form.taxMode === 'override' ? Number(form.overrideTaxAmount) || 0 : 0,
         returns:           form.returns,
+        disparityItems:    (form.disparityItems || []).filter((d) => d && d.product && String(d.product).trim() !== ''),
       };
       const res = await api.put(`/invoices/${invoice._id}`, payload);
       onUpdated(res.data);
@@ -256,6 +260,13 @@ function EditInvoiceDialog({ open, onClose, invoice, onUpdated }) {
             <Label>Disparity Reason</Label>
             <Textarea rows={2} value={form.disparityReason} onChange={set('disparityReason')}
               placeholder="Optional — recorded when invoice ≠ LPO amount"/>
+          </div>
+
+          <div className="rounded-md border border-border/60 bg-accent/10 p-2.5">
+            <DisparityItemsEditor
+              value={form.disparityItems}
+              onChange={(next) => setForm((f) => ({ ...f, disparityItems: next }))}
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -550,26 +561,16 @@ function InvoiceRow({ invoice, onUpdated, onDeleted, isAdmin, canEdit, i }) {
           </div>
         </td>
 
-        {/* Disparity */}
+        {/* Disparity amount */}
         <td className="px-3 py-3 whitespace-nowrap">
           {hasDisparity ? (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5 cursor-help">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span className={cn('font-mono text-xs font-semibold',
-                      invoice.disparityAmount > 0 ? 'text-amber-400' : 'text-destructive')}>
-                      {invoice.disparityAmount > 0 ? '+' : ''}{fmtShort(invoice.disparityAmount)}
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
-                  <p className="font-semibold mb-0.5">Reason:</p>
-                  <p>{invoice.disparityReason || 'No reason provided'}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <div className="flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className={cn('font-mono text-xs font-semibold',
+                invoice.disparityAmount > 0 ? 'text-amber-400' : 'text-destructive')}>
+                {invoice.disparityAmount > 0 ? '+' : ''}{fmtShort(invoice.disparityAmount)}
+              </span>
+            </div>
           ) : (
             <div className="flex items-center gap-1 text-emerald-400">
               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -578,23 +579,35 @@ function InvoiceRow({ invoice, onUpdated, onDeleted, isAdmin, canEdit, i }) {
           )}
         </td>
 
-        {/* Disparity Reason (with expand-on-click) */}
-        <td className="px-3 py-3 max-w-[180px]">
-          {invoice.disparityReason ? (
-            <TooltipProvider><Tooltip>
-              <TooltipTrigger asChild>
-                <p className="text-[11px] text-foreground line-clamp-2 cursor-help whitespace-pre-wrap break-words">
+        {/* Disparity reason + itemized products — now fully visible (no hover required) */}
+        <td className="px-3 py-3 min-w-[240px] max-w-[340px] align-top">
+          {(invoice.disparityReason || (invoice.disparityItems && invoice.disparityItems.length)) ? (
+            <div className="space-y-1">
+              {invoice.disparityReason && (
+                <p className="text-[11px] text-foreground whitespace-pre-wrap break-words leading-snug">
                   {invoice.disparityReason}
                 </p>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-md text-xs whitespace-pre-wrap break-words">
-                {invoice.disparityReason}
-              </TooltipContent>
-            </Tooltip></TooltipProvider>
+              )}
+              {invoice.disparityItems && invoice.disparityItems.length > 0 && (
+                <ul className="space-y-0.5 pt-1 border-t border-border/40">
+                  {invoice.disparityItems.map((it, i) => (
+                    <li key={i} className="flex items-baseline gap-1.5 text-[10.5px] font-mono leading-tight">
+                      <span className="text-amber-400/80">▸</span>
+                      <span className="text-foreground truncate" title={it.product}>{it.product}</span>
+                      <span className="text-muted-foreground shrink-0">
+                        · {it.quantity ?? '?'}{it.unit ? ` ${it.unit}` : ''}
+                      </span>
+                      {it.note && <span className="text-muted-foreground/70 italic truncate">— {it.note}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           ) : (
             <span className="text-muted-foreground/50 italic text-[11px]">—</span>
           )}
         </td>
+
 
         {/* Adjustments — original vs adjusted */}
         <td className="px-3 py-3 whitespace-nowrap">
@@ -900,30 +913,63 @@ export default function InvoicePage() {
     ),
   })).filter((g) => g.invoices.length > 0);
 
-  const handleExportCSV = () => {
+  // Build a flat, fully-detailed export set (same columns as visible table, plus disparity items).
+  const buildExportRows = () => {
+    const cols = [
+      'Date', 'Invoice No', 'LPO No', 'Branch', 'Prepared By', 'Delivered By',
+      'LPO Amount (KES)', 'Ex-VAT (KES)', 'VAT (KES)', 'Incl. VAT (KES)',
+      'Tax Mode', 'Disparity (KES)', 'Disparity Reason', 'Disparity Products',
+      'Adjusted Amount (KES)', 'Returns', 'Status',
+    ];
     const rows = [];
     filtered.forEach((g) =>
-      g.invoices.forEach((inv) => rows.push([
-        inv.invoiceNumber,
-        inv.lpoNumber || inv.lpo?.lpoNumber || '',
-        inv.branch?.name || inv.branchNameRaw || '',
-        inv.lpo?.amount ?? '',
-        inv.amountExVat,
-        inv.amountInclVat,
-        inv.disparityAmount ?? '',
-        inv.lpo?.responsiblePerson?.name || '',
-        inv.deliveredBy || '',
-        inv.returns || '',
-        inv.status,
-        g.date,
-      ]))
+      g.invoices.forEach((inv) => {
+        const vat = (Number(inv.amountInclVat) || 0) - (Number(inv.amountExVat) || 0);
+        rows.push([
+          g.date,
+          inv.invoiceNumber,
+          inv.lpoNumber || inv.lpo?.lpoNumber || '',
+          inv.branch?.name || inv.branchNameRaw || '',
+          inv.lpo?.responsiblePerson?.name || '',
+          inv.deliveredBy || '',
+          inv.lpo?.amount ?? '',
+          inv.amountExVat ?? '',
+          Number.isFinite(vat) ? vat.toFixed(2) : '',
+          inv.amountInclVat ?? '',
+          inv.taxMode || 'taxable',
+          inv.disparityAmount ?? '',
+          inv.disparityReason || '',
+          summarizeDisparityItems(inv.disparityItems || []),
+          inv.adjustedAmount ?? '',
+          inv.returns || '',
+          inv.status,
+        ]);
+      })
     );
-    const headers = ['Invoice No', 'LPO No', 'Branch', 'LPO Amount', 'Ex-VAT', 'Incl. VAT', 'Disparity', 'Prepared By', 'Delivered By', 'Returns', 'Status', 'Date'];
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = `invoices-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+    return { cols, rows };
+  };
+
+  const handleExportPDF = () => {
+    const { cols, rows } = buildExportRows();
+    if (!rows.length) return toast.error('No invoices to export');
+    exportToPDF({ rows, cols, meta: {
+      title: `Invoices — ${dateRangeLabel()}`,
+      filename: `invoices-${new Date().toISOString().split('T')[0]}`,
+    }});
+  };
+  const handleExportExcel = () => {
+    const { cols, rows } = buildExportRows();
+    if (!rows.length) return toast.error('No invoices to export');
+    exportToExcel({ rows, cols, meta: {
+      title: 'Invoices',
+      sheetName: 'Invoices',
+      filename: `invoices-${new Date().toISOString().split('T')[0]}`,
+    }});
+  };
+  const dateRangeLabel = () => {
+    if (!filtered.length) return 'no data';
+    const dates = filtered.map((g) => g.date).sort();
+    return dates.length === 1 ? dates[0] : `${dates[0]} → ${dates[dates.length - 1]}`;
   };
 
   return (
@@ -938,8 +984,11 @@ export default function InvoicePage() {
           <Button variant="outline" size="sm" onClick={() => fetchInvoices(true)} disabled={refreshing}>
             <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} />
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExportCSV}>
-            <Download className="w-3.5 h-3.5" />CSV
+          <Button variant="outline" size="sm" onClick={handleExportPDF} title="Export current view to PDF">
+            <FileText className="w-3.5 h-3.5" />PDF
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportExcel} title="Export current view to Excel">
+            <FileSpreadsheet className="w-3.5 h-3.5" />Excel
           </Button>
           {canCreate && (
             <Button onClick={() => setModalOpen(true)}>

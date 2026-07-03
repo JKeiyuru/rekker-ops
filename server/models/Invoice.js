@@ -59,6 +59,23 @@ const invoiceSchema = new mongoose.Schema(
     disparityAmount: { type: Number, default: null },
     disparityReason: { type: String, trim: true, default: '' },
 
+    // Structured, per-product disparity records — drives the Disparity Product Report.
+    // Each row = one product mismatch with a free-form quantity + optional unit + note.
+    disparityItems: {
+      type: [
+        new mongoose.Schema(
+          {
+            product:  { type: String, trim: true, required: true },
+            quantity: { type: Number, required: true },
+            unit:     { type: String, trim: true, default: '' },
+            note:     { type: String, trim: true, default: '' },
+          },
+          { _id: true }
+        ),
+      ],
+      default: [],
+    },
+
     // Delivery
     deliveredBy: { type: String, trim: true, default: '' },
 

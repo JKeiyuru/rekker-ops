@@ -163,7 +163,7 @@ router.post('/', protect, authorize(...PACKAGING_CAN_EDIT), async (req, res) => 
   try {
     const {
       invoiceNumber, lpoId, amountExVat, amountInclVat,
-      vatRate, disparityReason, date, deliveredBy,
+      vatRate, disparityReason, disparityItems, date, deliveredBy,
       taxMode, exemptAmount, overrideTaxAmount,
     } = req.body;
 
@@ -206,6 +206,7 @@ router.post('/', protect, authorize(...PACKAGING_CAN_EDIT), async (req, res) => 
       overrideTaxAmount: tax.overrideTaxAmount,
       disparityAmount,
       disparityReason:   disparityReason || '',
+      disparityItems:    Array.isArray(disparityItems) ? disparityItems.filter((d) => d && d.product) : [],
       deliveredBy:       deliveredBy || '',
       branch:            lpo.branch?._id || null,
       branchNameRaw:     lpo.branchNameRaw || '',
@@ -285,6 +286,7 @@ router.post('/batch', protect, authorize(...PACKAGING_CAN_EDIT), async (req, res
         overrideTaxAmount: tax.overrideTaxAmount,
         disparityAmount,
         disparityReason:   it.disparityReason || '',
+        disparityItems:    Array.isArray(it.disparityItems) ? it.disparityItems.filter((d) => d && d.product) : [],
         deliveredBy:       deliveredBy || '',
         branch:            lpo.branch?._id || null,
         branchNameRaw:     lpo.branchNameRaw || '',
@@ -402,7 +404,7 @@ router.put('/:id', protect, authorize(...PACKAGING_CAN_EDIT), async (req, res) =
     if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
 
     const {
-      invoiceNumber, amountExVat, amountInclVat, disparityReason, vatRate,
+      invoiceNumber, amountExVat, amountInclVat, disparityReason, disparityItems, vatRate,
       deliveredBy, returns, taxMode, exemptAmount, overrideTaxAmount,
       date, lpoId, items,
     } = req.body;
@@ -427,6 +429,11 @@ router.put('/:id', protect, authorize(...PACKAGING_CAN_EDIT), async (req, res) =
     if (exemptAmount !== undefined)      track('exemptAmount', Number(exemptAmount) || 0);
     if (overrideTaxAmount !== undefined) track('overrideTaxAmount', Number(overrideTaxAmount) || 0);
     if (disparityReason !== undefined)   track('disparityReason', disparityReason);
+    if (Array.isArray(disparityItems)) {
+      snapshot.disparityItems = invoice.disparityItems;
+      invoice.disparityItems = disparityItems.filter((d) => d && d.product);
+      fieldsChanged.push('disparityItems');
+    }
     if (deliveredBy !== undefined)       track('deliveredBy', deliveredBy || '');
     if (returns !== undefined)           track('returns', returns || '');
     if (date)                             track('date', new Date(date));
