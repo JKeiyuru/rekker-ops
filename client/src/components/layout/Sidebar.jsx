@@ -45,11 +45,15 @@ const NAV_SECTIONS = [
   ]},
   { key: 'fresh', label: 'Fresh Produce', items: [
       { to: '/fresh',               icon: LayoutDashboard,  label: 'Dashboard',     roles: FRESH_MGMT  },
+      { to: '/fresh/operations',    icon: FileSpreadsheet,  label: 'Operations',    roles: FRESH_MGMT  },
+      { to: '/fresh/insights',      icon: BarChart2,        label: 'Insights',      roles: FRESH_MGMT  },
+      { to: '/fresh/alerts',        icon: Zap,              label: 'Alerts',        roles: FRESH_MGMT  },
       { to: '/fresh/trip',          icon: Truck,            label: 'Field Ops',     roles: FRESH_FIELD },
       { to: '/fresh/lpos',          icon: FileSpreadsheet,  label: 'Supplier LPOs', roles: FRESH_FIELD },
       { to: '/fresh/customer-lpos', icon: ShoppingCart,     label: 'Customer LPOs', roles: FRESH_MGMT  },
       { to: '/fresh/returns',       icon: RotateCcw,        label: 'Returns',       roles: FRESH_MGMT  },
       { to: '/fresh/reports',       icon: BarChart2,        label: 'Reports',       roles: FRESH_MGMT  },
+      { to: '/fresh/reason-codes',  icon: Tag,              label: 'Reason Codes',  roles: FRESH_MGMT  },
       { to: '/fresh/vehicles',      icon: Package,          label: 'Vehicles',      roles: ADMIN_ONLY  },
   ]},
   { key: 'manufacturing', label: 'Manufacturing', items: [

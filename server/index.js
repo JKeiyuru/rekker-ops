@@ -35,6 +35,7 @@ const productionCycleRoutes  = require('./routes/productionCycles');
 const goodsReceiptRoutes     = require('./routes/goodsReceipts');
 const mfgIntelRoutes         = require('./routes/mfgIntel');
 const notificationRoutes     = require('./routes/notifications');
+const freshOpsRoutes         = require('./routes/fresh');
 
 const markIncompleteSessions = require('./jobs/markIncompleteSessions');
 
@@ -59,7 +60,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth',        authRoutes);
@@ -87,6 +88,7 @@ app.use('/api/production-cycles',   productionCycleRoutes);
 app.use('/api/goods-receipts',      goodsReceiptRoutes);
 app.use('/api/mfg',                 mfgIntelRoutes);
 app.use('/api/notifications',       notificationRoutes);
+app.use('/api/fresh',               freshOpsRoutes);
 
 // ── Internal job endpoint ─────────────────────────────────────────────────────
 // Called by Render's Cron Job service (or any trusted scheduler).

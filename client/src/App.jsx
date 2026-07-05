@@ -25,6 +25,10 @@ import VehiclesPage          from '@/pages/fresh/VehiclesPage';
 // New
 import FreshCustomerLPOsPage from '@/pages/fresh/FreshCustomerLPOsPage';
 import FreshReturnsPage      from '@/pages/fresh/FreshReturnsPage';
+import FreshOperationsPage   from '@/pages/fresh/FreshOperationsPage';
+import FreshReasonCodesPage  from '@/pages/fresh/FreshReasonCodesPage';
+import FreshAlertsPage       from '@/pages/fresh/FreshAlertsPage';
+import FreshInsightsPage     from '@/pages/fresh/FreshInsightsPage';
 import DeliveriesDashboard   from '@/pages/deliveries/DeliveriesDashboard';
 import DeliveryTripWorkflow  from '@/pages/deliveries/DeliveryTripWorkflow';
 import MyTripsPage            from '@/pages/deliveries/MyTripsPage';
@@ -103,7 +107,12 @@ export default function App() {
       <Route path="/fresh/customer-lpos" element={<P roles={FRESH_MGMT}><FreshCustomerLPOsPage /></P>} />
       <Route path="/fresh/returns"       element={<P roles={FRESH_MGMT}><FreshReturnsPage /></P>} />
       <Route path="/fresh/reports"       element={<P roles={FRESH_MGMT}><FreshReportsPage /></P>} />
+      <Route path="/fresh/operations"    element={<P roles={FRESH_MGMT}><FreshOperationsPage /></P>} />
+      <Route path="/fresh/insights"      element={<P roles={FRESH_MGMT}><FreshInsightsPage /></P>} />
+      <Route path="/fresh/alerts"        element={<P roles={FRESH_MGMT}><FreshAlertsPage /></P>} />
+      <Route path="/fresh/reason-codes"  element={<P roles={FRESH_MGMT}><FreshReasonCodesPage /></P>} />
       <Route path="/fresh/vehicles"      element={<P roles={ADMIN}><VehiclesPage /></P>} />
+
 
       {/* Deliveries (ordinary goods) */}
       <Route path="/deliveries"          element={<P roles={DELIVERY_MGMT}><DeliveriesDashboard /></P>} />
