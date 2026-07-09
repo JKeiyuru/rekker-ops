@@ -26,6 +26,7 @@ import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 import CreateInvoiceModal from '@/components/CreateInvoiceModal';
 import DisparityItemsEditor, { summarizeDisparityItems } from '@/components/DisparityItemsEditor';
+import StickyHorizontalScroll from '@/components/StickyHorizontalScroll';
 import { exportToPDF, exportToExcel } from '@/lib/reportExport';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -51,6 +52,14 @@ const STATUS_CONFIG = {
   submitted: { label: 'Submitted', variant: 'warning',      icon: Send         },
   approved:  { label: 'Approved',  variant: 'success',      icon: CheckCircle2 },
   rejected:  { label: 'Rejected',  variant: 'destructive',  icon: XCircle      },
+};
+
+// Legacy category labels — kept for back-compat rendering of pre-existing adjustments.
+const ADJ_LABELS = {
+  returned_goods: 'Returned Goods',
+  not_delivered:  'Not Delivered',
+  control_list:   'Control List',
+  other:          'Other',
 };
 
 function InvoiceStatusBadge({ status }) {
@@ -289,31 +298,51 @@ function EditInvoiceDialog({ open, onClose, invoice, onUpdated }) {
 }
 
 // ── Adjustments Dialog ───────────────────────────────────────────────────────
-const ADJ_LABELS = {
-  returned_goods: 'Returned Goods',
-  not_delivered:  'Not Delivered',
-  control_list:   'Control List',
-  other:          'Other',
-};
-
+// Reasons are user-managed (see AdjustmentReason). User enters the ex-VAT impact;
+// the incl-VAT impact is derived from the invoice's own effective tax factor,
+// so both totals recompute correctly regardless of tax mode.
 function AdjustmentsDialog({ open, onClose, invoice, onUpdated, canEdit }) {
-  const [type, setType] = useState('returned_goods');
-  const [amount, setAmount] = useState('');
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [reasons, setReasons]         = useState([]);
+  const [reasonId, setReasonId]       = useState('');
+  const [amountExVat, setAmountExVat] = useState('');
+  const [reason, setReason]           = useState('');
+  const [busy, setBusy]               = useState(false);
+  const [managingOpen, setManagingOpen] = useState(false);
+
+  const loadReasons = () => api.get('/adjustment-reasons').then((r) => {
+    const list = (r.data || []).filter((x) => x.active !== false);
+    setReasons(list);
+    if (list.length && !reasonId) setReasonId(list[0]._id);
+  }).catch(() => {});
+
+  useEffect(() => { if (open) loadReasons(); /* eslint-disable-next-line */ }, [open]);
 
   const adjustments = invoice?.adjustments || [];
-  const total = adjustments.reduce((s, a) => s + Number(a.amount || 0), 0);
+  const totalIncl = adjustments.reduce((s, a) => s + Number(a.amount || 0), 0);
+  const totalEx   = adjustments.reduce((s, a) => s + Number(a.amountExVat || 0), 0);
+
+  // Effective tax factor for THIS invoice (handles taxable/exempt/mixed/override).
+  const factor = Number(invoice?.amountExVat) > 0
+    ? Number(invoice.amountInclVat) / Number(invoice.amountExVat)
+    : 1;
+  const previewIncl = Number(amountExVat) > 0 ? Number(amountExVat) * factor : 0;
+  const adjustedEx  = Math.max(0, Number(invoice?.amountExVat || 0)   - totalEx);
+  const adjustedIn  = Math.max(0, Number(invoice?.amountInclVat || 0) - totalIncl);
 
   const add = async () => {
-    if (!amount || Number(amount) <= 0) return toast.error('Enter an amount');
+    if (!Number(amountExVat) || Number(amountExVat) <= 0) return toast.error('Enter an ex-VAT amount');
+    const chosen = reasons.find((r) => r._id === reasonId);
+    if (!chosen) return toast.error('Pick a reason');
     setBusy(true);
     try {
       const res = await api.post(`/invoices/${invoice._id}/adjustments`, {
-        type, amount: Number(amount), reason,
+        reasonLabel: chosen.label,
+        category:    chosen.category || 'other',
+        amountExVat: Number(amountExVat),
+        reason,
       });
       onUpdated(res.data);
-      setAmount(''); setReason('');
+      setAmountExVat(''); setReason('');
       toast.success('Adjustment added');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to add');
@@ -331,63 +360,174 @@ function AdjustmentsDialog({ open, onClose, invoice, onUpdated, canEdit }) {
 
   if (!invoice) return null;
   return (
+    <>
+      <Dialog open={open} onOpenChange={onClose}>
+        <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Adjustments — {invoice.invoiceNumber}</DialogTitle>
+            <DialogDescription>
+              Enter the ex-VAT value of each adjustment. The system automatically recomputes
+              the incl-VAT deduction and the new adjusted invoice totals.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Totals block */}
+          <div className="grid grid-cols-2 gap-2 mt-2 text-xs font-mono">
+            <div className="rounded-md border border-border p-2 space-y-0.5">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Original</p>
+              <p>Ex-VAT: <span className="text-foreground">{fmt(invoice.amountExVat)}</span></p>
+              <p>Incl. VAT: <span className="text-foreground">{fmt(invoice.amountInclVat)}</span></p>
+            </div>
+            <div className="rounded-md border border-primary/40 bg-primary/5 p-2 space-y-0.5">
+              <p className="text-[10px] uppercase tracking-wider text-primary/80">Adjusted</p>
+              <p>Ex-VAT: <span className="text-foreground">{fmt(adjustedEx)}</span></p>
+              <p>Incl. VAT: <span className="text-foreground font-semibold">{fmt(adjustedIn)}</span></p>
+            </div>
+          </div>
+          <p className="text-[10px] font-mono text-amber-400 mt-1">
+            Total adjustments — Ex-VAT: {fmt(totalEx)} · Incl. VAT: {fmt(totalIncl)}
+          </p>
+
+          {/* Existing adjustments */}
+          {adjustments.length > 0 && (
+            <div className="mt-3 space-y-1.5 max-h-56 overflow-y-auto">
+              {adjustments.map((a) => (
+                <div key={a._id} className="flex items-start gap-2 rounded-md border border-border px-2.5 py-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="outline" className="text-[9px]">{a.reasonLabel || ADJ_LABELS[a.type] || a.type}</Badge>
+                      <span className="font-mono text-xs">Ex-VAT {fmt(a.amountExVat)}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground">· Incl. {fmt(a.amount)}</span>
+                    </div>
+                    {a.reason && <p className="text-[11px] text-muted-foreground mt-0.5 whitespace-pre-wrap break-words">{a.reason}</p>}
+                  </div>
+                  {canEdit && (
+                    <button onClick={() => remove(a._id)} className="text-muted-foreground hover:text-destructive p-1">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add form */}
+          {canEdit && (
+            <div className="mt-3 pt-3 border-t border-border space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Add adjustment</p>
+                <button onClick={() => setManagingOpen(true)}
+                  className="text-[10px] font-mono text-primary hover:underline">
+                  Manage reasons
+                </button>
+              </div>
+              <Select value={reasonId} onValueChange={setReasonId}>
+                <SelectTrigger className="h-8"><SelectValue placeholder="Choose reason…" /></SelectTrigger>
+                <SelectContent>
+                  {reasons.map((r) => <SelectItem key={r._id} value={r._id}>{r.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-mono">KES</span>
+                  <Input type="number" step="0.01" placeholder="Amount ex-VAT"
+                    className="pl-9 h-8 font-mono" value={amountExVat} onChange={(e) => setAmountExVat(e.target.value)} />
+                </div>
+                <div className="rounded-md border border-border/60 bg-accent/20 px-2 h-8 flex items-center justify-between text-[10px] font-mono">
+                  <span className="text-muted-foreground">Incl. VAT</span>
+                  <span className="text-foreground">{fmt(previewIncl)}</span>
+                </div>
+              </div>
+              <Textarea rows={2} placeholder="Notes (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+              <Button className="w-full" size="sm" onClick={add} disabled={busy}>
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Add adjustment
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <ManageReasonsDialog open={managingOpen} onClose={() => { setManagingOpen(false); loadReasons(); }} />
+    </>
+  );
+}
+
+// ── Manage Adjustment Reasons Dialog ─────────────────────────────────────────
+function ManageReasonsDialog({ open, onClose }) {
+  const [items, setItems] = useState([]);
+  const [label, setLabel] = useState('');
+  const [category, setCategory] = useState('other');
+  const [busy, setBusy] = useState(false);
+
+  const load = () => api.get('/adjustment-reasons').then((r) => setItems(r.data || [])).catch(() => {});
+  useEffect(() => { if (open) load(); }, [open]);
+
+  const add = async () => {
+    if (!label.trim()) return toast.error('Label required');
+    setBusy(true);
+    try {
+      await api.post('/adjustment-reasons', { label: label.trim(), category });
+      setLabel(''); setCategory('other');
+      load();
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setBusy(false); }
+  };
+  const remove = async (id) => {
+    if (!window.confirm('Remove this reason? Existing adjustments keep their reason label.')) return;
+    try { await api.delete(`/adjustment-reasons/${id}`); load(); }
+    catch { toast.error('Failed'); }
+  };
+  const toggle = async (r) => {
+    try { await api.put(`/adjustment-reasons/${r._id}`, { active: !r.active }); load(); }
+    catch { toast.error('Failed'); }
+  };
+
+  return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md max-h-[92vh] overflow-y-auto">
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Invoice Adjustments — {invoice.invoiceNumber}</DialogTitle>
-          <DialogDescription>
-            Original amount stays immutable for audit. Adjusted total is amount − Σ adjustments.
-          </DialogDescription>
+          <DialogTitle>Manage Adjustment Reasons</DialogTitle>
+          <DialogDescription>Add, deactivate or remove reasons used across all invoice adjustments.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2 mt-2 text-xs font-mono">
-          <div className="flex justify-between"><span className="text-muted-foreground">Original (incl. VAT)</span><span>{fmt(invoice.amountInclVat)}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Adjustments total</span><span className="text-amber-400">−{fmt(total)}</span></div>
-          <div className="flex justify-between text-sm pt-1 border-t border-border"><span>Adjusted</span><span className="font-semibold">{fmt(invoice.adjustedAmount ?? invoice.amountInclVat)}</span></div>
+        <div className="space-y-1.5 mt-2">
+          {items.map((r) => (
+            <div key={r._id} className={cn(
+              'flex items-center gap-2 rounded-md border px-2.5 py-2',
+              r.active !== false ? 'border-border' : 'border-border/40 bg-muted/20 opacity-60'
+            )}>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-foreground truncate">{r.label}</p>
+                <p className="text-[10px] font-mono text-muted-foreground">{r.category}</p>
+              </div>
+              <button onClick={() => toggle(r)} className="text-[10px] font-mono text-muted-foreground hover:text-primary">
+                {r.active !== false ? 'Disable' : 'Enable'}
+              </button>
+              <button onClick={() => remove(r._id)} className="text-muted-foreground hover:text-destructive p-1">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+          {items.length === 0 && <p className="text-xs text-muted-foreground italic text-center py-4">No reasons yet.</p>}
         </div>
 
-        {adjustments.length > 0 && (
-          <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto">
-            {adjustments.map((a) => (
-              <div key={a._id} className="flex items-start gap-2 rounded-md border border-border px-2.5 py-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-[9px]">{ADJ_LABELS[a.type] || a.type}</Badge>
-                    <span className="font-mono text-xs">{fmt(a.amount)}</span>
-                  </div>
-                  {a.reason && <p className="text-[11px] text-muted-foreground mt-0.5 whitespace-pre-wrap break-words">{a.reason}</p>}
-                </div>
-                {canEdit && (
-                  <button onClick={() => remove(a._id)} className="text-muted-foreground hover:text-destructive p-1">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {canEdit && (
-          <div className="mt-3 pt-3 border-t border-border space-y-2">
-            <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Add adjustment</p>
-            <Select value={type} onValueChange={setType}>
-              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {Object.entries(ADJ_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono">KES</span>
-              <Input type="number" step="0.01" placeholder="Amount"
-                className="pl-9 h-8 font-mono" value={amount} onChange={(e) => setAmount(e.target.value)} />
-            </div>
-            <Textarea rows={2} placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <Button className="w-full" size="sm" onClick={add} disabled={busy}>
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Add adjustment
-            </Button>
-          </div>
-        )}
+        <div className="mt-3 pt-3 border-t border-border space-y-2">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Add new</p>
+          <Input placeholder="Reason label" value={label} onChange={(e) => setLabel(e.target.value)} />
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="returned_goods">Returned Goods</SelectItem>
+              <SelectItem value="not_delivered">Not Delivered</SelectItem>
+              <SelectItem value="control_list">Control List</SelectItem>
+              <SelectItem value="other">Other</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" className="w-full" onClick={add} disabled={busy}>
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add reason
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -761,7 +901,7 @@ function InvoiceRow({ invoice, onUpdated, onDeleted, isAdmin, canEdit, i }) {
 // ── Day Section ───────────────────────────────────────────────────────────────
 const HEADERS = [
   'Invoice No.', 'LPO No.', 'Branch', 'LPO Amount',
-  'Ex-VAT', 'Incl. VAT', 'Disparity', 'Disparity Reason', 'Adjustments',
+  'Ex-VAT', 'Incl. VAT', 'Disparity', 'Disparity Products', 'Adjustments',
   'Prepared By', 'Delivered By', 'Returns', 'Status', 'Actions',
 ];
 
@@ -782,6 +922,8 @@ function InvoiceDaySection({ date, invoices: init, onUpdated, onDeleted, isAdmin
 
   const totalExVat   = invoices.reduce((s, i) => s + (i.amountExVat || 0), 0);
   const totalInclVat = invoices.reduce((s, i) => s + (i.amountInclVat || 0), 0);
+  const totalAdjEx   = invoices.reduce((s, i) => s + (i.adjustedAmountExVat ?? i.amountExVat ?? 0), 0);
+  const totalAdjIn   = invoices.reduce((s, i) => s + (i.adjustedAmount ?? i.amountInclVat ?? 0), 0);
   const withDisparity = invoices.filter((i) => i.disparityAmount != null && Math.abs(i.disparityAmount) > 0.01).length;
 
   return (
@@ -811,8 +953,27 @@ function InvoiceDaySection({ date, invoices: init, onUpdated, onDeleted, isAdmin
       </button>
 
       {open && (
-        <div className="p-4 bg-background/40">
-          <div className="overflow-x-auto rounded-lg border border-rekker-border">
+        <div className="p-4 bg-background/40 space-y-3">
+          {/* Per-day totals — adjusted vs original, ex-VAT & incl-VAT */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
+            <div className="rounded-md border border-border px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Ex-VAT (original)</p>
+              <p className="text-foreground text-sm">{fmt(totalExVat)}</p>
+            </div>
+            <div className="rounded-md border border-border px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Incl. VAT (original)</p>
+              <p className="text-foreground text-sm">{fmt(totalInclVat)}</p>
+            </div>
+            <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-primary/80">Adjusted Ex-VAT</p>
+              <p className="text-foreground text-sm">{fmt(totalAdjEx)}</p>
+            </div>
+            <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-primary/80">Adjusted Incl. VAT</p>
+              <p className="text-foreground text-sm font-semibold">{fmt(totalAdjIn)}</p>
+            </div>
+          </div>
+          <StickyHorizontalScroll className="rounded-lg border border-rekker-border" topOffset={64}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-rekker-border bg-rekker-surface/80">
@@ -837,7 +998,7 @@ function InvoiceDaySection({ date, invoices: init, onUpdated, onDeleted, isAdmin
                 ))}
               </tbody>
             </table>
-          </div>
+          </StickyHorizontalScroll>
         </div>
       )}
     </div>

@@ -269,8 +269,10 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
     if (!invoiceNumber.trim()) return toast.error('Invoice number required');
     if (!selectedLpo)          return toast.error('Select an LPO');
     if (!amountExVat)          return toast.error('Amount required');
-    if (hasDisparity && !disparityReason.trim())
-      return toast.error('Please enter a reason for the disparity');
+    // A disparity now REQUIRES at least one product row instead of a free-text reason.
+    const cleanItems = (disparityItems || []).filter((d) => d && d.product && String(d.product).trim() !== '');
+    if (hasDisparity && cleanItems.length === 0)
+      return toast.error('List the products (and quantities) that caused this disparity');
 
     setLoading(true);
     try {
@@ -283,10 +285,8 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
         taxMode,
         exemptAmount:      taxMode === 'mixed'    ? Number(exemptAmount) || 0 : 0,
         overrideTaxAmount: taxMode === 'override' ? Number(overrideTaxAmount) || 0 : 0,
-        disparityReason: hasDisparity ? disparityReason : '',
-        disparityItems:  hasDisparity
-          ? (disparityItems || []).filter((d) => d.product && String(d.product).trim() !== '')
-          : [],
+        disparityReason: hasDisparity ? (disparityReason || '') : '',
+        disparityItems:  hasDisparity ? cleanItems : [],
         deliveredBy,
         date,
       });
@@ -375,14 +375,19 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
             </p>
           </div>
           {hasDisparity && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label className="text-amber-400/80">Reason for Disparity <span className="text-muted-foreground font-normal">(required)</span></Label>
-                <Textarea placeholder="e.g. Price adjustment agreed with branch manager…"
-                  value={disparityReason} onChange={(e) => setDisparityReason(e.target.value)}
-                  rows={2} className="border-amber-500/30 focus-visible:ring-amber-500/40 text-sm" />
-              </div>
+            <div className="space-y-2">
               <DisparityItemsEditor value={disparityItems} onChange={setDisparityItems} />
+              <details className="text-[11px]">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
+                  Add extra note about this disparity (optional)
+                </summary>
+                <Textarea
+                  placeholder="Optional context — e.g. price re-negotiated with branch manager"
+                  value={disparityReason} onChange={(e) => setDisparityReason(e.target.value)}
+                  rows={2}
+                  className="mt-1.5 border-amber-500/30 focus-visible:ring-amber-500/40 text-sm"
+                />
+              </details>
             </div>
           )}
         </div>
@@ -482,12 +487,13 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
     if (items.some((i) => !i.invoiceNumber)) return toast.error('Every LPO needs an invoice number');
     if (items.some((i) => !i.amountExVat))    return toast.error('Every LPO needs an amount');
 
-    // Per-invoice disparity check — require reason if disparate
-    const missingReason = items.find((i) => {
+    // Disparity now requires product lines instead of a free-text reason.
+    const missingItems = items.find((i) => {
       if (i._lpoAmount == null) return false;
-      return Math.abs(i.amountExVat - Number(i._lpoAmount)) > 0.01 && !i.disparityReason;
+      const isDisp = Math.abs(i.amountExVat - Number(i._lpoAmount)) > 0.01;
+      return isDisp && (!i.disparityItems || i.disparityItems.length === 0);
     });
-    if (missingReason) return toast.error(`Enter a disparity reason for ${missingReason.invoiceNumber || 'the disparate LPO'}`);
+    if (missingItems) return toast.error(`List the products causing the disparity for ${missingItems.invoiceNumber || 'the disparate LPO'}`);
     items.forEach((i) => { delete i._lpoAmount; });
 
     // Pro-rata split the shared exempt amount (mixed mode only)

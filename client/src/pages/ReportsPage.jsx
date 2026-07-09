@@ -240,23 +240,31 @@ function GoodsReturnReport({ filters }) {
         out.push([
           g.date, inv.invoiceNumber,
           inv.branch?.name || inv.branchNameRaw || '—',
-          Number(a.amount), ADJ_LABELS[a.type] || a.type,
+          a.reasonLabel || ADJ_LABELS[a.type] || a.type,
+          Number(a.amountExVat || 0),
+          Number(a.amount || 0),
           a.reason || '—',
-          Number(inv.adjustedAmount ?? inv.amountInclVat),
+          Number(inv.amountExVat || 0),
+          Number(inv.amountInclVat || 0),
+          Number(inv.adjustedAmountExVat ?? inv.amountExVat ?? 0),
+          Number(inv.adjustedAmount ?? inv.amountInclVat ?? 0),
         ]);
       });
     }));
     return out;
   }, [groups]);
 
-  const cols = ['Date', 'Invoice #', 'Branch', 'Adjustment Amount', 'Type', 'Reason', 'Adjusted Invoice'];
-  const totals = ['TOTAL', '', '', 'sum', '', '', 'sum'];
+  const cols = ['Date', 'Invoice #', 'Branch', 'Reason', 'Adj Ex-VAT', 'Adj Incl. VAT', 'Notes', 'Inv Ex-VAT', 'Inv Incl. VAT', 'Adjusted Ex-VAT', 'Adjusted Incl. VAT'];
+  const totals = ['TOTAL', '', '', '', 'sum', 'sum', '', 'sum', 'sum', 'sum', 'sum'];
 
   return loading ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
     : <ReportTable cols={cols} rows={rows} totalsReducers={totals} title="Goods Return Report" filename="rekker-returns-report" />;
 }
 
 // ── Disparity Product Report ─────────────────────────────────────────────────
+// Built from invoice.disparityItems (product + qty entered on the invoice) and
+// invoice.disparityAmount (LPO value − invoice value, ex-VAT). Shows a per-product
+// list with the branch, invoice date and the cost of the disparity.
 function DisparityProductReport({ filters }) {
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState([]);
@@ -272,40 +280,42 @@ function DisparityProductReport({ filters }) {
   const rows = useMemo(() => {
     const out = [];
     groups.forEach((g) => g.invoices.forEach((inv) => {
-      const lpoItems = inv.lpo?.items || [];
-      const invItems = inv.items || [];
-      if (!lpoItems.length && !invItems.length) return;
-      const keyOf = (it) => (it.sku || it.name || '').toLowerCase().trim();
-      const byKey = new Map();
-      lpoItems.forEach((it) => byKey.set(keyOf(it), { name: it.name, lpo: it, inv: null }));
-      invItems.forEach((it) => {
-        const k = keyOf(it);
-        if (byKey.has(k)) byKey.get(k).inv = it;
-        else byKey.set(k, { name: it.name, lpo: null, inv: it });
-      });
-      byKey.forEach(({ name, lpo, inv: iv }) => {
-        const lpoQty = Number(lpo?.quantity || 0);
-        const invQty = Number(iv?.quantity || 0);
-        const price  = Number(iv?.unitPrice ?? lpo?.unitPrice ?? 0);
-        const dQty   = invQty - lpoQty;
-        const dVal   = dQty * price;
-        if (Math.abs(dQty) > 0.001 || Math.abs(dVal) > 0.01) {
-          out.push([g.date, inv.invoiceNumber, inv.lpoNumber || '—', name, lpoQty, invQty, dQty, price, dVal]);
-        }
+      const items = inv.disparityItems || [];
+      if (!items.length) return;
+      const branch = inv.branch?.name || inv.branchNameRaw || '—';
+      // Cost = LPO ex-VAT − invoice ex-VAT (positive = cost to us).
+      const lpoAmt = Number(inv.lpo?.amount || 0);
+      const invAmt = Number(inv.amountExVat || 0);
+      const totalCost = lpoAmt - invAmt;
+      // Distribute the disparity cost per row by product quantity share (best-effort).
+      const totalQty = items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+      items.forEach((it) => {
+        const qty = Number(it.quantity) || 0;
+        const share = totalQty > 0 ? qty / totalQty : (1 / items.length);
+        const cost = Number((totalCost * share).toFixed(2));
+        out.push([
+          g.date,
+          inv.invoiceNumber,
+          inv.lpoNumber || '—',
+          branch,
+          it.product,
+          qty || '',
+          it.unit || '',
+          cost,
+        ]);
       });
     }));
     return out;
   }, [groups]);
 
-  const cols = ['Date', 'Invoice #', 'LPO #', 'Product', 'LPO Qty', 'Inv Qty', 'Δ Qty', 'Unit Price', 'Δ Value'];
-  const totals = ['TOTAL', '', '', '', 'sum', 'sum', 'sum', '', 'sum'];
+  const cols = ['Date', 'Invoice #', 'LPO #', 'Branch', 'Product', 'Qty', 'Unit', 'Cost (KES)'];
+  const totals = ['TOTAL', '', '', '', '', 'sum', '', 'sum'];
 
   return (
     <div className="space-y-3">
       {rows.length === 0 && !loading && (
         <p className="text-xs text-muted-foreground p-3 rounded-md border border-dashed border-border">
-          No line-level disparities found. This report needs LPOs and invoices with product line items
-          (add them via Edit LPO / Edit Invoice → items).
+          No disparity products recorded for this range. Products entered on disparate invoices will appear here.
         </p>
       )}
       {loading ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>

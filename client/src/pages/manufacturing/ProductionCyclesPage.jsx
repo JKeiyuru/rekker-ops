@@ -1,7 +1,7 @@
 // client/src/pages/manufacturing/ProductionCyclesPage.jsx
 
 import { useEffect, useState } from 'react';
-import { Plus, BarChart3, CheckCircle2, Loader2, AlertTriangle, ExternalLink, Download } from 'lucide-react';
+import { Plus, BarChart3, CheckCircle2, Loader2, AlertTriangle, ExternalLink, Download, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -124,9 +124,33 @@ export default function ProductionCyclesPage() {
   const [list, setList] = useState([]);
   const [products, setProducts] = useState([]);
   const [open, setOpen] = useState(false);
+  const [endCycle, setEndCycle] = useState(null); // cycle to quick-end
+  const [endUnits, setEndUnits] = useState(0);
+  const [endBusy, setEndBusy] = useState(false);
 
   const load = () => Promise.all([api.get('/production-cycles'), api.get('/products')]).then(([c, p]) => { setList(c.data || []); setProducts(p.data || []); });
   useEffect(() => { load(); }, []);
+
+  const openEnd = (c) => { setEndCycle(c); setEndUnits(c.unitsProduced || c.expectedUnits || 0); };
+  const confirmEnd = async () => {
+    if (!endCycle) return;
+    setEndBusy(true);
+    try {
+      const res = await api.post(`/production-cycles/${endCycle._id}/end`, { unitsProduced: Number(endUnits) || 0 });
+      setList((prev) => prev.map((c) => c._id === res.data._id ? res.data : c));
+      toast.success(`Cycle ${res.data.cycleNumber} completed`);
+      setEndCycle(null);
+    } catch (e) { toast.error(e.response?.data?.message || 'Failed'); }
+    finally { setEndBusy(false); }
+  };
+  const cancelCycle = async (c) => {
+    if (!window.confirm(`Cancel cycle ${c.cycleNumber}? Materials will be returned to stock.`)) return;
+    try {
+      const res = await api.post(`/production-cycles/${c._id}/cancel`);
+      setList((prev) => prev.map((x) => x._id === res.data._id ? res.data : x));
+      toast.success('Cancelled');
+    } catch (e) { toast.error(e.response?.data?.message || 'Failed'); }
+  };
 
   return (
     <div className="space-y-6">
@@ -155,7 +179,21 @@ export default function ProductionCyclesPage() {
                   <td className="px-4 py-2.5 font-mono text-primary">KES {Number(c.totalCost||0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                   <td className="px-4 py-2.5"><Badge variant={c.status==='running' ? 'warning' : c.status==='cancelled' ? 'destructive' : 'success'}>{c.status}</Badge></td>
                   <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground whitespace-nowrap">{format(new Date(c.startedAt), 'dd/MM HH:mm')}</td>
-                  <td className="px-4 py-2.5 text-right"><Button size="sm" variant="outline" onClick={() => exportProductionCyclePDF(c)} title="PDF"><Download className="w-3.5 h-3.5" /></Button></td>
+                  <td className="px-4 py-2.5 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      {c.status === 'running' && (
+                        <>
+                          <Button size="sm" variant="default" className="h-7 px-2" onClick={() => openEnd(c)} title="End cycle">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> End
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 hover:text-destructive" onClick={() => cancelCycle(c)} title="Cancel">
+                            <XCircle className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      )}
+                      <Button size="sm" variant="outline" onClick={() => exportProductionCyclePDF(c)} title="PDF"><Download className="w-3.5 h-3.5" /></Button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -163,6 +201,29 @@ export default function ProductionCyclesPage() {
         </div>
       )}
       <StartCycleModal open={open} onClose={() => setOpen(false)} products={products} onStarted={(c) => setList((p) => [c, ...p])} />
+
+      {/* Quick End dialog */}
+      <Dialog open={!!endCycle} onOpenChange={(o) => !o && setEndCycle(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>End cycle {endCycle?.cycleNumber}</DialogTitle>
+            <DialogDescription>Enter the actual units produced. Cost totals will finalize using the snapshot BOM.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 mt-2">
+            <div className="space-y-1.5">
+              <Label>Units produced</Label>
+              <Input type="number" min="0" value={endUnits} onChange={(e) => setEndUnits(e.target.value)} />
+              <p className="text-[10px] font-mono text-muted-foreground">Expected {endCycle?.expectedUnits || 0}. For material actuals + QC, open the cycle detail.</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setEndCycle(null)}>Cancel</Button>
+              <Button className="flex-1" onClick={confirmEnd} disabled={endBusy}>
+                {endBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Complete
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

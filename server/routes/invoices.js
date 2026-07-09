@@ -359,20 +359,33 @@ router.patch('/:id/returns', protect, authorize(...PACKAGING_CAN_EDIT), async (r
 });
 
 // ── POST /api/invoices/:id/adjustments — add a post-delivery adjustment ─────
+// Body: { reasonLabel, category?, amountExVat?, amount?, reason? }
+// Either `amountExVat` or `amount` (incl VAT) may be provided; the other is derived
+// from the invoice's own tax factor in the model pre-save hook.
 router.post('/:id/adjustments', protect, authorize(...PACKAGING_CAN_EDIT), async (req, res) => {
   try {
-    const { type, amount, reason } = req.body;
+    const { type, category, reasonLabel, amount, amountExVat, reason } = req.body;
+    const catValue = category || type || 'other';
     const ALLOWED = ['returned_goods', 'not_delivered', 'control_list', 'other'];
-    if (!ALLOWED.includes(type)) return res.status(400).json({ message: 'Invalid adjustment type' });
-    const amt = Number(amount);
-    if (!amt || amt <= 0) return res.status(400).json({ message: 'Amount must be > 0' });
+    const cat = ALLOWED.includes(catValue) ? catValue : 'other';
+
+    const amtEx   = Number(amountExVat);
+    const amtIncl = Number(amount);
+    if ((!amtEx || amtEx <= 0) && (!amtIncl || amtIncl <= 0)) {
+      return res.status(400).json({ message: 'Adjustment amount must be > 0' });
+    }
 
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
 
     invoice.adjustments.push({
-      type, amount: amt, reason: reason || '',
-      createdBy: req.user._id, createdAt: new Date(),
+      type:        cat,
+      reasonLabel: reasonLabel || '',
+      amountExVat: amtEx > 0 ? amtEx : 0,
+      amount:      amtIncl > 0 ? amtIncl : 0, // filled by pre-save from ex-VAT when 0
+      reason:      reason || '',
+      createdBy:   req.user._id,
+      createdAt:   new Date(),
     });
     await invoice.save();
     await invoice.populate(POPULATE);

@@ -4,15 +4,22 @@ const mongoose = require('mongoose');
 
 const adjustmentSchema = new mongoose.Schema(
   {
+    // `type` is the legacy category tag. `reasonLabel` is the human-readable label
+    // chosen from the AdjustmentReason master list. Either may be present.
     type: {
       type: String,
       enum: ['returned_goods', 'not_delivered', 'control_list', 'other'],
-      required: true,
+      default: 'other',
     },
-    amount:    { type: Number, required: true, min: 0 },
-    reason:    { type: String, trim: true, default: '' },
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    createdAt: { type: Date, default: Date.now },
+    reasonLabel:  { type: String, trim: true, default: '' },
+    // `amount` = impact on the invoice INCL. VAT (immutable per audit).
+    // `amountExVat` = impact on the invoice EX. VAT — user-entered.
+    // Both are stored so pre-VAT and post-VAT totals can be recomputed.
+    amount:      { type: Number, required: true, min: 0 },
+    amountExVat: { type: Number, default: 0, min: 0 },
+    reason:      { type: String, trim: true, default: '' },
+    createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    createdAt:   { type: Date, default: Date.now },
   },
   { _id: true }
 );
@@ -84,9 +91,12 @@ const invoiceSchema = new mongoose.Schema(
     returnsUpdatedAt: { type: Date, default: null },
     returnsUpdatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 
-    // Post-delivery adjustments — original amountInclVat stays immutable for audit
-    adjustments:    { type: [adjustmentSchema], default: [] },
-    adjustedAmount: { type: Number, default: null }, // = amountInclVat − Σ adjustments.amount
+    // Post-delivery adjustments — original amountInclVat stays immutable for audit.
+    // `adjustedAmount`      = amountInclVat − Σ adjustments.amount        (incl VAT)
+    // `adjustedAmountExVat` = amountExVat   − Σ adjustments.amountExVat   (ex VAT)
+    adjustments:         { type: [adjustmentSchema], default: [] },
+    adjustedAmount:      { type: Number, default: null },
+    adjustedAmountExVat: { type: Number, default: null },
 
     // Optional line items
     items: { type: [invoiceItemSchema], default: [] },
@@ -122,10 +132,30 @@ const invoiceSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Compute adjustedAmount + item line totals before save
+// Compute adjustedAmount(s) + item line totals + backfill adjustment ex-VAT before save.
 invoiceSchema.pre('save', function (next) {
-  const adjTotal = (this.adjustments || []).reduce((s, a) => s + (Number(a.amount) || 0), 0);
-  this.adjustedAmount = Math.max(0, Number((this.amountInclVat || 0) - adjTotal).toFixed(2) * 1);
+  // Effective VAT multiplier for this invoice — handles taxable / exempt / mixed / override.
+  const sub  = Number(this.amountExVat) || 0;
+  const incl = Number(this.amountInclVat) || 0;
+  const factor = sub > 0 ? incl / sub : 1;
+
+  let adjIncl = 0;
+  let adjEx   = 0;
+  (this.adjustments || []).forEach((a) => {
+    // Backfill missing ex-VAT amount from incl-VAT amount using the invoice's own factor.
+    if ((a.amountExVat == null || a.amountExVat === 0) && a.amount) {
+      a.amountExVat = factor > 0 ? Number((Number(a.amount) / factor).toFixed(2)) : Number(a.amount);
+    }
+    // If the row was created with only ex-VAT, mirror the incl-VAT value too.
+    if ((!a.amount || a.amount === 0) && a.amountExVat) {
+      a.amount = Number((Number(a.amountExVat) * factor).toFixed(2));
+    }
+    adjIncl += Number(a.amount || 0);
+    adjEx   += Number(a.amountExVat || 0);
+  });
+  this.adjustedAmount      = Math.max(0, Number((incl - adjIncl).toFixed(2)));
+  this.adjustedAmountExVat = Math.max(0, Number((sub  - adjEx  ).toFixed(2)));
+
   (this.items || []).forEach((it) => {
     it.lineTotal = Number((Number(it.quantity || 0) * Number(it.unitPrice || 0)).toFixed(2));
   });
