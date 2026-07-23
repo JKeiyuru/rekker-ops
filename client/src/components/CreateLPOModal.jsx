@@ -1,4 +1,9 @@
 // client/src/components/CreateLPOModal.jsx
+// FIX (Jul 2026): the branches/persons fetch on open had no .catch, so if that request
+// failed (e.g. rate-limited or a network blip — see server/index.js fix), the dropdowns
+// just silently stayed empty forever, showing "No branches yet" with no indication
+// anything went wrong and no way to recover short of closing and reopening the modal.
+// Now a failure shows a toast and lets the user retry from within the modal.
 
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Loader2, User, Layers, GitBranch, Users } from 'lucide-react';
@@ -205,13 +210,33 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
     setMpRows([emptyMpRow(), emptyMpRow()]);
   }, []);
 
+  const [refDataError, setRefDataError] = useState(false);
+  const [refDataLoading, setRefDataLoading] = useState(false);
+
+  const loadReferenceData = useCallback(async () => {
+    setRefDataLoading(true);
+    setRefDataError(false);
+    try {
+      const [personsRes, branchesRes] = await Promise.all([
+        api.get('/persons'),
+        api.get('/branches'),
+      ]);
+      setPersons(personsRes.data);
+      setBranches(branchesRes.data);
+    } catch (err) {
+      setRefDataError(true);
+      toast.error('Could not load branches / responsible persons. Check your connection and retry.');
+    } finally {
+      setRefDataLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (open) {
       reset();
-      api.get('/persons').then((r) => setPersons(r.data));
-      api.get('/branches').then((r) => setBranches(r.data));
+      loadReferenceData();
     }
-  }, [open, reset]);
+  }, [open, reset, loadReferenceData]);
 
   const resolveBranch = async ({ branchId, branchNameRaw, isNew }) => {
     if (!isNew && branchId) return { branchId, branchNameRaw };
@@ -347,6 +372,15 @@ export default function CreateLPOModal({ open, onClose, onCreated }) {
           <DialogTitle>New LPO Entry</DialogTitle>
           <DialogDescription>Choose the scenario that matches how this order is being handled.</DialogDescription>
         </DialogHeader>
+
+        {refDataError && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+            <span className="text-destructive">Couldn't load branches / responsible persons.</span>
+            <Button type="button" size="sm" variant="outline" disabled={refDataLoading} onClick={loadReferenceData}>
+              {refDataLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Retry'}
+            </Button>
+          </div>
+        )}
 
         {/* Mode selector */}
         <div className="grid grid-cols-2 gap-2 mt-1">
