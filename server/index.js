@@ -1,4 +1,17 @@
 // server/index.js
+// FIX (Jul 2026): CORS was being blocked intermittently for real users behind a shared
+// office IP (e.g. Emma's machine). Root cause: the rate limiter ran BEFORE the cors()
+// middleware, so once the (very low) 200-req/15min-per-IP limit was hit -- trivially easy
+// with several staff sharing one NAT'd office IP, each with notification polling plus
+// several dropdown fetches on every page -- Express sent the 429 response straight from
+// express-rate-limit without any Access-Control-Allow-Origin header attached. The browser
+// then reports this as a generic CORS failure ("blocked by CORS policy... No
+// Access-Control-Allow-Origin"), masking the real "Too Many Requests" cause. The same
+// masking happened for any other early middleware error. Fix: mount cors() first (so
+// every response -- including 429s and error-handler responses -- always carries the
+// header), skip rate-limiting for CORS preflight (OPTIONS) requests, raise the general
+// limit to something sane for an internal ops tool, and give /api/auth/login its own
+// separate, stricter limiter for brute-force protection instead of sharing the global one.
 
 const express    = require('express');
 const mongoose   = require('mongoose');
@@ -43,23 +56,66 @@ const markIncompleteSessions = require('./jobs/markIncompleteSessions');
 const app = express();
 
 app.set('trust proxy', 1);
-app.use(helmet());
-app.use(morgan('dev'));
 
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
-
+// ── CORS ─────────────────────────────────────────────────────────────────────
+// This MUST be the first middleware mounted. If anything (rate limiter, helmet,
+// auth, the error handler, etc.) responds before this runs, that response goes
+// out with no Access-Control-Allow-Origin header and the browser reports it as
+// a CORS failure no matter how legitimate the origin was.
 const allowedOrigins = [
   'http://localhost:5173',
   'https://ops.rekker.co.ke',
   'https://rekker-ops.onrender.com',
 ];
-app.use(cors({
+const corsOptions = {
   origin: (origin, cb) => {
     if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
     cb(new Error('Not allowed by CORS'));
   },
   credentials: true,
-}));
+};
+app.use(cors(corsOptions));
+// Explicitly answer every preflight fast, before hitting rate limiting/helmet/auth.
+app.options('*', cors(corsOptions));
+
+app.use(helmet());
+app.use(morgan('dev'));
+
+// ── Rate limiting ────────────────────────────────────────────────────────────
+// Split into two limiters:
+//   1) generalLimiter — applied to all /api traffic. This is an internal tool used
+//      by a small team, often from a single shared office IP (NAT), each with a
+//      browser tab polling /api/notifications every 30s plus several dropdown
+//      fetches (branches, persons, lpos, invoices) on every page load. The old
+//      shared 200 req/15min limit was easily exhausted by 3-4 people working
+//      normally, which is what caused the "works, then fails for a while, then
+//      works again" pattern. Raised substantially and preflight (OPTIONS) is
+//      always skipped since it carries no meaningful load and blocking it just
+//      breaks every real request behind it.
+//   2) loginLimiter — kept intentionally strict and scoped ONLY to POST
+//      /api/auth/login, so brute-force protection doesn't get diluted by raising
+//      the general limit, and normal API usage never gets blocked because someone
+//      mistyped a password a few times.
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 2000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS',
+  message: { message: 'Too many requests, please slow down and try again shortly.' },
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS',
+  message: { message: 'Too many login attempts. Please wait a few minutes and try again.' },
+});
+
+app.use('/api/auth/login', loginLimiter);
+app.use('/api', generalLimiter);
 
 app.use(express.json({ limit: '25mb' }));
 
