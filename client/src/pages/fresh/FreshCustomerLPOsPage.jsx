@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import ExportButtons from '@/components/ExportButtons';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { format, isToday, isYesterday } from 'date-fns';
@@ -389,7 +390,42 @@ export default function FreshCustomerLPOsPage() {
           <h1 className="page-title flex items-center gap-2"><ShoppingCart className="w-6 h-6 text-primary" /> Customer LPOs</h1>
           <p className="text-sm text-muted-foreground mt-1">Orders received from customers. Use Quick mode for fast entry, Detailed for itemised LPOs.</p>
         </div>
-        <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus className="w-4 h-4" /> New LPO / Batch</Button>
+        <div className="flex items-center gap-2">
+          <ExportButtons
+            title="Fresh Customer LPOs"
+            filename={`fresh-customer-lpos-${format(new Date(), 'yyyy-MM-dd')}`}
+            disabled={loading || lpos.length === 0}
+            build={() => ({
+              cols: [
+                { key: 'day', label: 'Day' },
+                { key: 'lpoNumber', label: 'LPO #' },
+                { key: 'customer', label: 'Customer' },
+                { key: 'mode', label: 'Mode' },
+                { key: 'total', label: 'Total (KES)', align: 'right' },
+                { key: 'net', label: 'Net (KES)', align: 'right' },
+                { key: 'status', label: 'Status' },
+                { key: 'delivery', label: 'Delivery' },
+              ],
+              rows: grouped.flatMap(([day, list]) => list.map((l) => ({
+                day,
+                lpoNumber: l.lpoNumber,
+                customer: l.customer?.name || l.customerNameRaw || '—',
+                mode: (l.items?.length || 0) > 0 ? `${l.items.length} item(s)` : 'Quick',
+                total: Number(l.totalValue || 0),
+                net: Number(l.netValue || 0),
+                status: String(l.status || '').replace(/_/g, ' '),
+                delivery: l.deliveryDate ? format(new Date(l.deliveryDate), 'dd/MM/yyyy') : '—',
+              }))),
+              totalsRow: {
+                day: 'TOTAL',
+                total: lpos.reduce((a, l) => a + Number(l.totalValue || 0), 0),
+                net: lpos.reduce((a, l) => a + Number(l.netValue || 0), 0),
+              },
+            })}
+          />
+          <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus className="w-4 h-4" /> New LPO / Batch</Button>
+        </div>
+
       </div>
 
       {/* Filters */}

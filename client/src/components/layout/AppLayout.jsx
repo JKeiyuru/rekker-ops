@@ -9,6 +9,7 @@ import OnlineStatusBadge from '@/components/OnlineStatusBadge';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
+import { GlobalInvoiceModal } from '@/components/CreateInvoiceModal';
 
 export default function AppLayout({ children }) {
   const { user } = useAuthStore();
@@ -48,6 +49,8 @@ export default function AppLayout({ children }) {
       <div className="md:hidden">
         <MobileNav pendingBranches={pendingBranches} />
       </div>
+
+      <GlobalInvoiceModal />
 
       <Toaster
         position="top-right"

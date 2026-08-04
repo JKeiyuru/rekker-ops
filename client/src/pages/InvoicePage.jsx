@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
-import CreateInvoiceModal from '@/components/CreateInvoiceModal';
+import { useInvoiceModalStore } from '@/store/invoiceModalStore';
 import DisparityItemsEditor, { summarizeDisparityItems } from '@/components/DisparityItemsEditor';
 import StickyHorizontalScroll from '@/components/StickyHorizontalScroll';
 import { exportToPDF, exportToExcel } from '@/lib/reportExport';
@@ -911,6 +911,7 @@ function InvoiceDaySection({ date, invoices: init, onUpdated, onDeleted, isAdmin
 
   useEffect(() => { setInvoices(init); }, [init]);
 
+
   const handleUpdated = (updated) => {
     setInvoices((prev) => prev.map((inv) => (inv._id === updated._id ? updated : inv)));
     onUpdated(updated);
@@ -1014,7 +1015,7 @@ export default function InvoicePage() {
   const [groupedInvoices, setGroupedInvoices] = useState([]);
   const [loading, setLoading]                 = useState(true);
   const [refreshing, setRefreshing]           = useState(false);
-  const [modalOpen, setModalOpen]             = useState(false);
+  const { openInvoiceModal, createdTick, lastCreated } = useInvoiceModalStore();
   const [search, setSearch]                   = useState('');
   const [statusFilter, setStatusFilter]       = useState('all');
   const [dateFilter, setDateFilter]           = useState({ start: '', end: '' });
@@ -1048,6 +1049,14 @@ export default function InvoicePage() {
       return [{ date: dateKey, invoices: [newInv] }, ...prev].sort((a, b) => new Date(b.date) - new Date(a.date));
     });
   };
+
+  // Invoices can now be created from the globally-mounted dialog (any page).
+  useEffect(() => {
+    if (createdTick && lastCreated) handleCreated(lastCreated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createdTick]);
+
+
 
   const handleUpdated = (updated) => {
     setGroupedInvoices((prev) =>
@@ -1152,7 +1161,7 @@ export default function InvoicePage() {
             <FileSpreadsheet className="w-3.5 h-3.5" />Excel
           </Button>
           {canCreate && (
-            <Button onClick={() => setModalOpen(true)}>
+            <Button onClick={() => openInvoiceModal(null)}>
               <Plus className="w-4 h-4" />New Invoice
             </Button>
           )}
@@ -1227,7 +1236,7 @@ export default function InvoicePage() {
           <Receipt className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
           <p className="text-muted-foreground text-sm">No invoices found.</p>
           {canCreate && (
-            <Button className="mt-4" onClick={() => setModalOpen(true)}>
+            <Button className="mt-4" onClick={() => openInvoiceModal(null)}>
               <Plus className="w-4 h-4" />Create First Invoice
             </Button>
           )}
@@ -1249,11 +1258,6 @@ export default function InvoicePage() {
         </div>
       )}
 
-      <CreateInvoiceModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onCreated={handleCreated}
-      />
     </div>
   );
 }

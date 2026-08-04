@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import RouteTimeline from '@/components/fresh/RouteTimeline';
+import ExportButtons from '@/components/ExportButtons';
 import api from '@/lib/api';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -271,9 +272,45 @@ export default function FreshReportsPage() {
           <Button variant="outline" size="sm" onClick={fetchAll} disabled={loading}>
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
           </Button>
+          <ExportButtons
+            title={`Fresh Trip Log ${dateRange.start} → ${dateRange.end}`}
+            filename={`fresh-ops-${dateRange.start}-${dateRange.end}`}
+            disabled={loading || sessions.length === 0}
+            build={() => ({
+              cols: [
+                { key: 'vehicle', label: 'Vehicle' },
+                { key: 'driver', label: 'Driver' },
+                { key: 'date', label: 'Date' },
+                { key: 'start', label: 'Start' },
+                { key: 'end', label: 'End' },
+                { key: 'duration', label: 'Duration (min)' },
+                { key: 'delay', label: 'Delays (min)' },
+                { key: 'status', label: 'Status' },
+                { key: 'stages', label: 'Stages' },
+              ],
+              rows: sessions.map((s) => ({
+                vehicle: s.vehicle?.regNumber || '—',
+                driver: s.driver?.fullName || '—',
+                date: s.date,
+                start: s.dayStartTime ? format(new Date(s.dayStartTime), 'HH:mm') : '—',
+                end: s.dayEndTime ? format(new Date(s.dayEndTime), 'HH:mm') : '—',
+                duration: s.totalDurationMinutes || 0,
+                delay: s.totalDelayMinutes || 0,
+                status: s.status,
+                stages: (s.stages || []).length,
+              })),
+              totalsRow: {
+                vehicle: 'TOTAL',
+                duration: sessions.reduce((a, s) => a + (s.totalDurationMinutes || 0), 0),
+                delay: sessions.reduce((a, s) => a + (s.totalDelayMinutes || 0), 0),
+                stages: sessions.reduce((a, s) => a + (s.stages || []).length, 0),
+              },
+            })}
+          />
           <Button variant="outline" size="sm" onClick={exportCSV}>
             <Download className="w-3.5 h-3.5" />CSV
           </Button>
+
         </div>
       </div>
 

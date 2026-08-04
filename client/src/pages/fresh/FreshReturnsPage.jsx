@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
+import ExportButtons from '@/components/ExportButtons';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { format, isToday, isYesterday } from 'date-fns';
@@ -378,7 +379,34 @@ export default function FreshReturnsPage() {
           <h1 className="page-title flex items-center gap-2"><RotateCcw className="w-6 h-6 text-primary" /> Returns</h1>
           <p className="text-sm text-muted-foreground mt-1">Log returns by value (fast) or by exact items.</p>
         </div>
-        <Button onClick={() => setOpen(true)}><Plus className="w-4 h-4" /> Log Return</Button>
+        <div className="flex items-center gap-2">
+          <ExportButtons
+            title="Fresh Returns"
+            filename={`fresh-returns-${format(new Date(), 'yyyy-MM-dd')}`}
+            disabled={loading || returns.length === 0}
+            build={() => ({
+              cols: [
+                { key: 'day', label: 'Day' },
+                { key: 'returnNumber', label: 'Return #' },
+                { key: 'mode', label: 'Mode' },
+                { key: 'reason', label: 'Reason' },
+                { key: 'lpos', label: 'LPOs' },
+                { key: 'value', label: 'Value (KES)', align: 'right' },
+              ],
+              rows: grouped.flatMap(([day, list]) => list.map((r) => ({
+                day,
+                returnNumber: r.returnNumber,
+                mode: r.mode,
+                reason: r.reasonLabel || r.reason || '—',
+                lpos: (r.lpos || []).map((l) => l.lpoNumber).join(', '),
+                value: Number(r.totalValue || 0),
+              }))),
+              totalsRow: { day: 'TOTAL', value: returns.reduce((a, r) => a + Number(r.totalValue || 0), 0) },
+            })}
+          />
+          <Button onClick={() => setOpen(true)}><Plus className="w-4 h-4" /> Log Return</Button>
+        </div>
+
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 rounded-xl border border-rekker-border bg-rekker-surface/40">

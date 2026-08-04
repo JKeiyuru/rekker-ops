@@ -30,6 +30,11 @@ import { format } from 'date-fns';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import DisparityItemsEditor from '@/components/DisparityItemsEditor';
+import { usePersistedState } from '@/hooks/usePersistedState';
+import { useInvoiceModalStore } from '@/store/invoiceModalStore';
+
+const D = 'invoiceDraft:'; // localStorage prefix for draft fields
+
 
 const VAT_RATE = 16;
 
@@ -233,24 +238,27 @@ function LpoPicker({ lpos, loading, selectedLpo, onSelect }) {
 
 // ── SINGLE MODE ──────────────────────────────────────────────────────────────
 function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
-  const [invoiceNumber, setInvoiceNumber]     = useState('');
-  const [selectedLpo, setSelectedLpo]         = useState(null);
-  const [amountExVat, setAmountExVat]         = useState('');
-  const [disparityReason, setDisparityReason] = useState('');
-  const [disparityItems, setDisparityItems]   = useState([]);
-  const [deliveredBy, setDeliveredBy]         = useState('');
-  const [date, setDate]                       = useState(new Date().toISOString().split('T')[0]);
-  const [taxMode, setTaxMode]                 = useState('taxable');
-  const [exemptAmount, setExemptAmount]       = useState('');
-  const [overrideTaxAmount, setOverrideTaxAmount] = useState('');
+  const [invoiceNumber, setInvoiceNumber]     = usePersistedState(`${D}single:invoiceNumber`, '');
+  const [selectedLpo, setSelectedLpo]         = usePersistedState(`${D}single:selectedLpo`, null);
+  const [amountExVat, setAmountExVat]         = usePersistedState(`${D}single:amountExVat`, '');
+  const [disparityReason, setDisparityReason] = usePersistedState(`${D}single:disparityReason`, '');
+  const [disparityItems, setDisparityItems]   = usePersistedState(`${D}single:disparityItems`, []);
+  const [deliveredBy, setDeliveredBy]         = usePersistedState(`${D}single:deliveredBy`, '');
+  const [date, setDate]                       = usePersistedState(`${D}single:date`, () => new Date().toISOString().split('T')[0]);
+  const [taxMode, setTaxMode]                 = usePersistedState(`${D}single:taxMode`, 'taxable');
+  const [exemptAmount, setExemptAmount]       = usePersistedState(`${D}single:exemptAmount`, '');
+  const [overrideTaxAmount, setOverrideTaxAmount] = usePersistedState(`${D}single:overrideTaxAmount`, '');
+
   const [loading, setLoading]                 = useState(false);
 
   useEffect(() => {
-    if (prefillLpo) {
+    if (prefillLpo && (!selectedLpo || selectedLpo._id !== prefillLpo._id)) {
       setSelectedLpo(prefillLpo);
       if (prefillLpo.amount != null) setAmountExVat(String(prefillLpo.amount));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillLpo]);
+
 
   const tax = computeTax({ amountExVat, taxMode, exemptAmount, overrideTaxAmount });
   const disparity = selectedLpo?.amount != null && amountExVat !== ''
@@ -406,14 +414,15 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
 
 // ── BATCH MODE ───────────────────────────────────────────────────────────────
 function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
-  const [selectedGroupKey, setSelectedGroupKey] = useState(null);
-  const [selectedLpoIds, setSelectedLpoIds]     = useState([]);
-  const [rows, setRows]                         = useState({}); // { lpoId: { invoiceNumber, amountExVat } }
-  const [deliveredBy, setDeliveredBy]           = useState('');
-  const [date, setDate]                         = useState(new Date().toISOString().split('T')[0]);
-  const [taxMode, setTaxMode]                   = useState('taxable');
-  const [exemptAmount, setExemptAmount]         = useState('');
-  const [overrideTaxAmount, setOverrideTaxAmount] = useState('');
+  const [selectedGroupKey, setSelectedGroupKey] = usePersistedState(`${D}batch:groupKey`, null);
+  const [selectedLpoIds, setSelectedLpoIds]     = usePersistedState(`${D}batch:lpoIds`, []);
+  const [rows, setRows]                         = usePersistedState(`${D}batch:rows`, {}); // { lpoId: { invoiceNumber, amountExVat } }
+  const [deliveredBy, setDeliveredBy]           = usePersistedState(`${D}batch:deliveredBy`, '');
+  const [date, setDate]                         = usePersistedState(`${D}batch:date`, () => new Date().toISOString().split('T')[0]);
+  const [taxMode, setTaxMode]                   = usePersistedState(`${D}batch:taxMode`, 'taxable');
+  const [exemptAmount, setExemptAmount]         = usePersistedState(`${D}batch:exemptAmount`, '');
+  const [overrideTaxAmount, setOverrideTaxAmount] = usePersistedState(`${D}batch:overrideTaxAmount`, '');
+
   const [loading, setLoading]                   = useState(false);
   const [search, setSearch]                     = useState('');
 
@@ -731,11 +740,10 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
 export default function CreateInvoiceModal({ open, onClose, onCreated, prefillLpo = null }) {
   const [lpos, setLpos]               = useState([]);
   const [lposLoading, setLposLoading] = useState(false);
-  const [tab, setTab]                 = useState(prefillLpo ? 'single' : 'single');
+  const [tab, setTab]                 = usePersistedState(`${D}tab`, 'single');
 
   useEffect(() => {
     if (open) {
-      setTab(prefillLpo ? 'single' : 'single');
       setLposLoading(true);
       api.get('/lpos/uninvoiced')
         .then((r) => setLpos(Array.isArray(r.data) ? r.data : []))
@@ -743,9 +751,19 @@ export default function CreateInvoiceModal({ open, onClose, onCreated, prefillLp
     }
   }, [open, prefillLpo]);
 
+  // The dialog is intentionally "sticky": clicking the backdrop, pressing Esc
+  // or navigating around must NOT discard a half-typed invoice. Only Cancel
+  // or the X button close it.
+  const block = (e) => e.preventDefault();
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent
+        className="max-w-2xl max-h-[92vh] overflow-y-auto"
+        onPointerDownOutside={block}
+        onInteractOutside={block}
+        onEscapeKeyDown={block}
+      >
         <DialogHeader>
           <DialogTitle>New Invoice</DialogTitle>
           <DialogDescription>
@@ -780,5 +798,20 @@ export default function CreateInvoiceModal({ open, onClose, onCreated, prefillLp
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Global mount ─────────────────────────────────────────────────────────────
+// Rendered once in AppLayout so the dialog (and its draft) survives page
+// navigation. Any page can open it via useInvoiceModalStore().openInvoiceModal.
+export function GlobalInvoiceModal() {
+  const { open, prefillLpo, closeInvoiceModal, markInvoiceCreated } = useInvoiceModalStore();
+  return (
+    <CreateInvoiceModal
+      open={open}
+      prefillLpo={prefillLpo}
+      onClose={closeInvoiceModal}
+      onCreated={(inv) => markInvoiceCreated(inv)}
+    />
   );
 }
