@@ -13,10 +13,12 @@
 // no separate free-text reason is required from the user.
 
 import { useEffect, useState } from 'react';
-import { Plus, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronRight, ScanLine } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import PdfDisparityDialog from '@/components/PdfDisparityDialog';
+
 
 export default function DisparityItemsEditor({
   value = [],
@@ -37,16 +39,35 @@ export default function DisparityItemsEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [pdfOpen, setPdfOpen] = useState(false);
+
   const update = (i, patch) => onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const remove = (i) => onChange(rows.filter((_, idx) => idx !== i));
   const add    = () => onChange([...rows, { product: '', quantity: '' }]);
 
+  // Merge PDF-detected products into whatever the user has already typed:
+  // blank placeholder rows are replaced, real rows are kept.
+  const applyDetected = (detected = []) => {
+    const kept = rows.filter((r) => r && String(r.product || '').trim() !== '');
+    onChange([...kept, ...detected]);
+  };
+
   return (
     <div className="space-y-1.5">
       {label && (
-        <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground block">
-          {label}
-        </span>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground block">
+            {label}
+          </span>
+          <Button
+            type="button" size="sm" variant="ghost" disabled={disabled}
+            className="h-6 px-2 text-[11px] gap-1 text-primary hover:text-primary hover:bg-primary/10"
+            onClick={() => setPdfOpen(true)}
+            title="Upload the invoice and LPO PDFs and let the system detect the disparity products"
+          >
+            <ScanLine className="w-3 h-3" /> Detect from PDFs
+          </Button>
+        </div>
       )}
 
       {rows.length === 0 && (
@@ -66,15 +87,28 @@ export default function DisparityItemsEditor({
         ))}
       </div>
 
-      <Button
-        type="button" size="sm" variant="ghost" disabled={disabled}
-        className="h-7 px-2 text-[11px] gap-1 text-primary hover:text-primary hover:bg-primary/10"
-        onClick={add}>
-        <Plus className="w-3 h-3" /> Add another product
-      </Button>
+      <div className="flex flex-wrap items-center gap-1">
+        <Button
+          type="button" size="sm" variant="ghost" disabled={disabled}
+          className="h-7 px-2 text-[11px] gap-1 text-primary hover:text-primary hover:bg-primary/10"
+          onClick={add}>
+          <Plus className="w-3 h-3" /> Add another product
+        </Button>
+        {!label && (
+          <Button
+            type="button" size="sm" variant="ghost" disabled={disabled}
+            className="h-7 px-2 text-[11px] gap-1 text-primary hover:text-primary hover:bg-primary/10"
+            onClick={() => setPdfOpen(true)}>
+            <ScanLine className="w-3 h-3" /> Detect from PDFs
+          </Button>
+        )}
+      </div>
+
+      <PdfDisparityDialog open={pdfOpen} onOpenChange={setPdfOpen} onApply={applyDetected} />
     </div>
   );
 }
+
 
 function ProductRow({ row, disabled, compact, onChange, onRemove }) {
   const [showDetails, setShowDetails] = useState(!!(row.unit || row.note));
