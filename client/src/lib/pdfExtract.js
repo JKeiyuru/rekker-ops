@@ -51,19 +51,6 @@ function itemsToLines(items) {
     .filter(Boolean);
 }
 
-/** Rough readability score — used to pick the best OCR orientation. */
-function readabilityScore(text) {
-  if (!text) return 0;
-  const tokens = text.split(/\s+/).filter((t) => t.length > 2);
-  if (!tokens.length) return 0;
-  let good = 0;
-  tokens.forEach((t) => {
-    const letters = t.replace(/[^A-Za-z]/g, '');
-    if (letters.length >= 3 && /[AEIOUaeiou]/.test(letters)) good += 1;
-  });
-  return good;
-}
-
 let ocrWorkerPromise = null;
 async function getOcrWorker() {
   if (!ocrWorkerPromise) {
@@ -114,17 +101,36 @@ export async function extractPdfLines(file, { onProgress } = {}) {
     }
 
     // Scanned page → OCR, trying the most common fax orientations.
+    //
+    // NOTE: we used to rank orientations with a hand-rolled "readability"
+    // heuristic (count tokens that look vaguely like English words). That
+    // heuristic is *not* reliable: OCR-ing a sideways/upside-down fax still
+    // produces plenty of accidental 3+ letter, vowel-containing tokens, so
+    // garbage from the WRONG rotation regularly out-scored the real text
+    // from the correct one — and since the loop broke as soon as it saw a
+    // "good enough" score, it would often lock onto the very first rotation
+    // tried (0°, i.e. not rotated at all) before ever trying the orientation
+    // that was actually readable. That's exactly why LPO faxes (which are
+    // scanned sideways) were coming out as garbled nonsense while upright
+    // digital invoices, which never hit this code path, were fine.
+    //
+    // Tesseract itself reports a mean confidence (0-100) for how sure it is
+    // about what it read, which is a much stronger signal than guessing from
+    // word shape — a sideways scan reads as low-confidence noise, the
+    // correctly oriented one reads as high-confidence real text. We rank by
+    // that instead, and only stop early once tesseract is genuinely
+    // confident, rather than settling for "found some words".
     ocrUsed = true;
     const worker = await getOcrWorker();
-    let best = { score: -1, text: '' };
-    for (const rotation of [0, 90, 270, 180]) {
+    let best = { confidence: -1, text: '' };
+    for (const rotation of [0, 90, 180, 270]) {
       report(`Scanning page ${p} (OCR${rotation ? `, rotated ${rotation}°` : ''})…`);
       const canvas = await renderPageToCanvas(page, rotation);
       const { data } = await worker.recognize(canvas);
-      const score = readabilityScore(data.text);
-      if (score > best.score) best = { score, text: data.text };
-      // A clearly readable page — no need to try the other orientations.
-      if (best.score >= 25) break;
+      const confidence = typeof data.confidence === 'number' ? data.confidence : 0;
+      if (confidence > best.confidence) best = { confidence, text: data.text };
+      // Genuinely high-confidence read — no need to try the other orientations.
+      if (best.confidence >= 85) break;
     }
     allLines.push(...best.text.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean));
   }
