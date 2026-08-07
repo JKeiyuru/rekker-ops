@@ -14,7 +14,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Loader2, Plus, AlertTriangle, CheckCircle2, Search,
-  ChevronDown, ChevronRight, Layers, Receipt, Info,
+  ChevronDown, ChevronRight, Layers, Receipt, Info, FilePlus2, ScanLine,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -30,6 +30,8 @@ import { format } from 'date-fns';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import DisparityItemsEditor from '@/components/DisparityItemsEditor';
+import PdfDisparityDialog from '@/components/PdfDisparityDialog';
+import QuickAddLpoDialog from '@/components/QuickAddLpoDialog';
 import { usePersistedState } from '@/hooks/usePersistedState';
 import { useInvoiceModalStore } from '@/store/invoiceModalStore';
 
@@ -141,7 +143,7 @@ function TaxTreatmentPicker({
 }
 
 // ── LPO Picker (single mode) ─────────────────────────────────────────────────
-function LpoPicker({ lpos, loading, selectedLpo, onSelect }) {
+function LpoPicker({ lpos, loading, selectedLpo, onSelect, onQuickAdd }) {
   const [search, setSearch]     = useState('');
   const [expanded, setExpanded] = useState({});
 
@@ -178,18 +180,38 @@ function LpoPicker({ lpos, loading, selectedLpo, onSelect }) {
 
   if (loading) return <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>;
   if (lpos.length === 0) {
-    return <div className="text-center py-6 text-sm text-muted-foreground border border-dashed border-border rounded-lg">All LPOs have been invoiced.</div>;
+    return (
+      <div className="text-center py-6 text-sm text-muted-foreground border border-dashed border-border rounded-lg space-y-2">
+        <p>All LPOs have been invoiced.</p>
+        <Button type="button" size="sm" variant="outline" onClick={() => onQuickAdd?.('')}>
+          <FilePlus2 className="w-3.5 h-3.5 mr-1.5" /> Add an LPO
+        </Button>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-2">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-        <Input placeholder="Search LPO number, branch, or person…" className="pl-9 h-8 text-sm"
-          value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <Input placeholder="Search LPO number, branch, or person…" className="pl-9 h-8 text-sm"
+            value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <Button type="button" size="sm" variant="outline" className="h-8 shrink-0"
+          onClick={() => onQuickAdd?.(search)}>
+          <FilePlus2 className="w-3.5 h-3.5 mr-1.5" /> Add LPO
+        </Button>
       </div>
       <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-accent/10 divide-y divide-border">
-        {sortedDates.length === 0 && <p className="text-center text-xs text-muted-foreground py-4">No LPOs match your search.</p>}
+        {sortedDates.length === 0 && (
+          <div className="text-center py-4 space-y-2">
+            <p className="text-xs text-muted-foreground">No LPOs match your search.</p>
+            <Button type="button" size="sm" variant="outline" onClick={() => onQuickAdd?.(search)}>
+              <FilePlus2 className="w-3.5 h-3.5 mr-1.5" /> Add {search.trim() ? `“${search.trim()}”` : 'this LPO'}
+            </Button>
+          </div>
+        )}
         {sortedDates.map((date) => (
           <div key={date}>
             <div className="px-3 py-1.5 bg-rekker-surface/60 sticky top-0">
@@ -237,7 +259,7 @@ function LpoPicker({ lpos, loading, selectedLpo, onSelect }) {
 }
 
 // ── SINGLE MODE ──────────────────────────────────────────────────────────────
-function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
+function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose, onLpoAdded }) {
   const [invoiceNumber, setInvoiceNumber]     = usePersistedState(`${D}single:invoiceNumber`, '');
   const [selectedLpo, setSelectedLpo]         = usePersistedState(`${D}single:selectedLpo`, null);
   const [amountExVat, setAmountExVat]         = usePersistedState(`${D}single:amountExVat`, '');
@@ -250,6 +272,8 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
   const [overrideTaxAmount, setOverrideTaxAmount] = usePersistedState(`${D}single:overrideTaxAmount`, '');
 
   const [loading, setLoading]                 = useState(false);
+  const [pdfOpen, setPdfOpen]                 = useState(false);
+  const [quickAdd, setQuickAdd]               = useState({ open: false, number: '' });
 
   useEffect(() => {
     if (prefillLpo && (!selectedLpo || selectedLpo._id !== prefillLpo._id)) {
@@ -273,6 +297,14 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
     else setAmountExVat('');
   };
 
+  // Merge PDF-detected disparity products with anything already typed.
+  const applyDetected = (detected = []) => {
+    const kept = (disparityItems || []).filter((r) => r && String(r.product || '').trim() !== '');
+    setDisparityItems([...kept, ...detected]);
+  };
+
+
+
   const handleSubmit = async () => {
     if (!invoiceNumber.trim()) return toast.error('Invoice number required');
     if (!selectedLpo)          return toast.error('Select an LPO');
@@ -294,7 +326,7 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
         exemptAmount:      taxMode === 'mixed'    ? Number(exemptAmount) || 0 : 0,
         overrideTaxAmount: taxMode === 'override' ? Number(overrideTaxAmount) || 0 : 0,
         disparityReason: hasDisparity ? (disparityReason || '') : '',
-        disparityItems:  hasDisparity ? cleanItems : [],
+        disparityItems:  cleanItems,
         deliveredBy,
         date,
       });
@@ -329,9 +361,24 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
             <span className="text-xs text-muted-foreground">{prefillLpo.branch?.name || prefillLpo.branchNameRaw || ''}</span>
           </div>
         ) : (
-          <LpoPicker lpos={lpos} loading={lposLoading} selectedLpo={selectedLpo} onSelect={handleLpoSelect} />
+          <LpoPicker
+            lpos={lpos} loading={lposLoading} selectedLpo={selectedLpo}
+            onSelect={handleLpoSelect}
+            onQuickAdd={(num) => setQuickAdd({ open: true, number: num || '' })}
+          />
         )}
       </div>
+
+      <div className="flex items-center justify-between gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-3 py-2">
+        <p className="text-[11px] text-muted-foreground">
+          Have the invoice and LPO PDFs? Let the system read them and build the disparity product list for you.
+        </p>
+        <Button type="button" size="sm" variant="outline" className="shrink-0 h-8"
+          onClick={() => setPdfOpen(true)}>
+          <ScanLine className="w-3.5 h-3.5 mr-1.5" /> Scan PDFs
+        </Button>
+      </div>
+
 
       {selectedLpo?.amount != null && (
         <p className="text-xs text-muted-foreground font-mono -mt-1">
@@ -382,7 +429,7 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
                 : 'Invoice matches LPO amount ✓'}
             </p>
           </div>
-          {hasDisparity && (
+          {(hasDisparity || (disparityItems || []).some((d) => d?.product)) && (
             <div className="space-y-2">
               <DisparityItemsEditor value={disparityItems} onChange={setDisparityItems} />
               <details className="text-[11px]">
@@ -408,12 +455,21 @@ function SingleMode({ lpos, lposLoading, prefillLpo, onCreated, onClose }) {
           Create Invoice
         </Button>
       </div>
+
+      <PdfDisparityDialog open={pdfOpen} onOpenChange={setPdfOpen} onApply={applyDetected} />
+      <QuickAddLpoDialog
+        open={quickAdd.open}
+        defaultLpoNumber={quickAdd.number}
+        onOpenChange={(v) => setQuickAdd((s) => ({ ...s, open: v }))}
+        onCreated={(lpo) => { onLpoAdded?.(lpo); handleLpoSelect(lpo); }}
+      />
     </div>
   );
 }
 
 // ── BATCH MODE ───────────────────────────────────────────────────────────────
-function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
+function BatchMode({ lpos, lposLoading, onCreated, onClose, onLpoAdded }) {
+  const [quickAdd, setQuickAdd] = useState({ open: false, number: '' });
   const [selectedGroupKey, setSelectedGroupKey] = usePersistedState(`${D}batch:groupKey`, null);
   const [selectedLpoIds, setSelectedLpoIds]     = usePersistedState(`${D}batch:lpoIds`, []);
   const [rows, setRows]                         = usePersistedState(`${D}batch:rows`, {}); // { lpoId: { invoiceNumber, amountExVat } }
@@ -542,7 +598,20 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
 
   if (lposLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>;
   if (lpos.length === 0) {
-    return <div className="text-center py-8 text-sm text-muted-foreground border border-dashed border-border rounded-lg mt-2">All LPOs have been invoiced.</div>;
+    return (
+      <div className="text-center py-8 text-sm text-muted-foreground border border-dashed border-border rounded-lg mt-2 space-y-2">
+        <p>All LPOs have been invoiced.</p>
+        <Button type="button" size="sm" variant="outline" onClick={() => setQuickAdd({ open: true, number: '' })}>
+          <FilePlus2 className="w-3.5 h-3.5 mr-1.5" /> Add an LPO
+        </Button>
+        <QuickAddLpoDialog
+          open={quickAdd.open}
+          defaultLpoNumber={quickAdd.number}
+          onOpenChange={(v) => setQuickAdd((s) => ({ ...s, open: v }))}
+          onCreated={(lpo) => onLpoAdded?.(lpo)}
+        />
+      </div>
+    );
   }
 
   return (
@@ -559,11 +628,18 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
             </p>
           </div>
 
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <Input placeholder="Search branch or LPO number…" className="pl-9 h-8 text-sm"
-              value={search} onChange={(e) => setSearch(e.target.value)} />
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Input placeholder="Search branch or LPO number…" className="pl-9 h-8 text-sm"
+                value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <Button type="button" size="sm" variant="outline" className="h-8 shrink-0"
+              onClick={() => setQuickAdd({ open: true, number: search })}>
+              <FilePlus2 className="w-3.5 h-3.5 mr-1.5" /> Add LPO
+            </Button>
           </div>
+
 
           <div className="max-h-80 overflow-y-auto rounded-lg border border-border bg-accent/10 divide-y divide-border">
             {groups.map((g) => (
@@ -732,6 +808,13 @@ function BatchMode({ lpos, lposLoading, onCreated, onClose }) {
           </div>
         </>
       )}
+
+      <QuickAddLpoDialog
+        open={quickAdd.open}
+        defaultLpoNumber={quickAdd.number}
+        onOpenChange={(v) => setQuickAdd((s) => ({ ...s, open: v }))}
+        onCreated={(lpo) => { onLpoAdded?.(lpo); setSelectedGroupKey(null); }}
+      />
     </div>
   );
 }
@@ -750,6 +833,9 @@ export default function CreateInvoiceModal({ open, onClose, onCreated, prefillLp
         .finally(() => setLposLoading(false));
     }
   }, [open, prefillLpo]);
+
+  // A newly captured LPO becomes immediately selectable without a page trip.
+  const addLpo = (lpo) => setLpos((prev) => [lpo, ...prev.filter((l) => l._id !== lpo._id)]);
 
   // The dialog is intentionally "sticky": clicking the backdrop, pressing Esc
   // or navigating around must NOT discard a half-typed invoice. Only Cancel
@@ -775,7 +861,7 @@ export default function CreateInvoiceModal({ open, onClose, onCreated, prefillLp
 
         {prefillLpo ? (
           <SingleMode lpos={lpos} lposLoading={lposLoading} prefillLpo={prefillLpo}
-            onCreated={onCreated} onClose={onClose} />
+            onCreated={onCreated} onClose={onClose} onLpoAdded={addLpo} />
         ) : (
           <Tabs value={tab} onValueChange={setTab} className="mt-2">
             <TabsList className="grid grid-cols-2 w-full">
@@ -788,11 +874,11 @@ export default function CreateInvoiceModal({ open, onClose, onCreated, prefillLp
             </TabsList>
             <TabsContent value="single">
               <SingleMode lpos={lpos} lposLoading={lposLoading} prefillLpo={null}
-                onCreated={onCreated} onClose={onClose} />
+                onCreated={onCreated} onClose={onClose} onLpoAdded={addLpo} />
             </TabsContent>
             <TabsContent value="batch">
               <BatchMode lpos={lpos} lposLoading={lposLoading}
-                onCreated={onCreated} onClose={onClose} />
+                onCreated={onCreated} onClose={onClose} onLpoAdded={addLpo} />
             </TabsContent>
           </Tabs>
         )}
