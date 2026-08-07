@@ -120,10 +120,14 @@ export async function extractPdfLines(file, { onProgress } = {}) {
     // correctly oriented one reads as high-confidence real text. We rank by
     // that instead, and only stop early once tesseract is genuinely
     // confident, rather than settling for "found some words".
+    // 270° (i.e. rotate the fax 90° anti-clockwise to read it) is by far the
+    // most common orientation for our Carrefour LPO faxes, so we try it
+    // first — if it comes back confident, we skip the other three renders +
+    // OCR passes entirely, which is where most of the wait time was going.
     ocrUsed = true;
     const worker = await getOcrWorker();
     let best = { confidence: -1, text: '' };
-    for (const rotation of [0, 90, 180, 270]) {
+    for (const rotation of [270, 0, 90, 180]) {
       report(`Scanning page ${p} (OCR${rotation ? `, rotated ${rotation}°` : ''})…`);
       const canvas = await renderPageToCanvas(page, rotation);
       const { data } = await worker.recognize(canvas);
